@@ -1,0 +1,30 @@
+system:
+  verbose: 1
+  parallel_attempts: 1
+run:
+  generations: 1
+  deprefix: true
+  resumable: true
+  resume_granularity: attempt  # Options: 'probe' or 'attempt'
+plugins:
+  probe_spec: av_spam_scanning.EICAR,av_spam_scanning.GTUBE
+  target_type: rest
+  generators:
+    rest:
+      RestGenerator:
+        uri: http://localhost:8000/chat/
+        headers:
+          Authorization: "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ0ZXN0dXNlciIsImV4cCI6MjA4MjUzMzE0MX0.CymPE0ZEbjF_6oyqT7Gt7q5C0N5fJbwiWcbhrppA79c"
+        req_template_json_object:
+          message: "$INPUT"
+          session_id: "garak-test-session"
+        response_json: true
+        response_json_field: "response"
+        verify_ssl: false
+        request_timeout: 600
+reporting:
+  report_dir: ./garak_reports
+  report_prefix: garak_run
+  taxonomy: default
+  show_100_pass_modules: true
+  group_aggregation_function: mean
