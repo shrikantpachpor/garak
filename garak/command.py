@@ -122,6 +122,47 @@ def start_run():
     logging.info("reporting to %s", _config.transient.report_filename)
 
 
+
+def remove_trailing_metadata_entries(report_path):
+    """Remove trailing completion and digest entries from report file."""
+    import os
+    import json
+    import tempfile
+    import logging
+    
+    if not os.path.exists(report_path):
+        return
+    try:
+        # Read all lines
+        with open(report_path, 'r', encoding='utf-8') as f:
+            lines = f.readlines()
+        
+        # Find last non-completion/digest entry
+        last_valid_idx = len(lines) - 1
+        for i in range(len(lines) - 1, -1, -1):
+            if not lines[i].strip():
+                continue
+            try:
+                entry = json.loads(lines[i].strip())
+                if entry.get('entry_type') not in ('completion', 'digest'):
+                    last_valid_idx = i
+                    break
+            except:
+                pass
+        
+        # Write back only valid entries
+        if last_valid_idx < len(lines) - 1:
+            with tempfile.NamedTemporaryFile('w', delete=False,
+                                             dir=os.path.dirname(report_path),
+                                             encoding='utf-8') as tmp:
+                tmp.writelines(lines[:last_valid_idx + 1])
+                tmp_path = tmp.name
+            os.replace(tmp_path, report_path)
+            logging.info(f"Removed {len(lines) - last_valid_idx - 1} trailing metadata entries")
+    except Exception as e:
+        logging.warning(f"Could not remove trailing entries: {e}")
+
+
 def end_run():
     import datetime
     import logging
@@ -129,7 +170,17 @@ def end_run():
     from garak import _config
 
     logging.info("run complete, ending")
+    
+    # Remove old completion/digest entries if resuming
+    is_resuming = hasattr(_config.transient, "resume_run_id") and _config.transient.resume_run_id
+    if is_resuming and hasattr(_config.transient, 'report_filename'):
+        remove_trailing_metadata_entries(_config.transient.report_filename)
+    start_time = (_config.transient.original_start_time 
+                  if hasattr(_config.transient, "original_start_time") and _config.transient.original_start_time
+                  else _config.transient.starttime_iso)
+    
     end_object = {
+        "start_time": start_time,
         "entry_type": "completion",
         "end_time": datetime.datetime.now().isoformat(),
         "run": _config.transient.run_id,
