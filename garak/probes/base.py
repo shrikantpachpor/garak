@@ -25,7 +25,6 @@ from garak.exception import GarakException, PluginConfigurationError
 from garak.probes._tier import Tier
 import garak.attempt
 import garak.resources.theme
-from garak import resumeservice
 
 
 class Probe(Configurable):
@@ -303,25 +302,20 @@ class Probe(Configurable):
         this_attempt.outputs = self.generator.generate(
             this_attempt.prompt, generations_this_call=self.generations
         )
+        if len(this_attempt.outputs) != self.generations:
+            raise garak.exception.BadGeneratorException(
+                "Generator did not return the requested number of responses (asked for %i got %i). supports_multiple_generations may be set incorrectly."
+                % (self.generations, len(this_attempt.outputs))
+            )
         if self.post_buff_hook:
             this_attempt = self._postprocess_buff(this_attempt)
         this_attempt = self._postprocess_hook(this_attempt)
         self._generator_cleanup()
         return copy.deepcopy(this_attempt)
 
-    def _execute_all(self, attempts, total_prompts=None, completed_prompts=0) -> Iterable[garak.attempt.Attempt]:
-        """handles sending a set of attempt to the generator
-        
-        Args:
-            attempts: List of attempts to execute
-            total_prompts: Total number of prompts (for progress bar)
-            completed_prompts: Number already completed (for progress bar initial position)
-        """
+    def _execute_all(self, attempts) -> Iterable[garak.attempt.Attempt]:
+        """handles sending a set of attempt to the generator"""
         attempts_completed: Iterable[garak.attempt.Attempt] = []
-        
-        # Calculate progress bar parameters
-        if total_prompts is None:
-            total_prompts = len(attempts) + completed_prompts
 
         if (
             self.parallel_attempts
@@ -332,7 +326,7 @@ class Probe(Configurable):
         ):
             from multiprocessing import Pool
 
-            attempt_bar = tqdm.tqdm(total=total_prompts, initial=completed_prompts, leave=False)
+            attempt_bar = tqdm.tqdm(total=len(attempts), leave=False)
             attempt_bar.set_description(self.probename.replace("garak.", ""))
 
             pool_size = min(
@@ -356,13 +350,6 @@ class Probe(Configurable):
                             processed_attempt
                         )  # these can be out of original order
                         attempt_bar.update(1)
-                        
-                        # RESUME: Save immediately as each attempt completes (even in parallel mode)
-                        if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
-                            probe_short_name = self.probename.replace("garak.probes.", "").replace("probes.", "")
-                            resumeservice.save_probe_progress(probe_short_name, processed_attempt.seq, total_prompts)
-                            resumeservice.mark_attempt_complete_by_seq(probe_short_name, processed_attempt.seq)
-                            print(f"  💾 Saved progress: attempt {processed_attempt.seq + 1}/{total_prompts}")
             except OSError as o:
                 if o.errno == 24:
                     msg = "Parallelisation limit hit. Try reducing parallel_attempts or raising limit (e.g. ulimit -n 4096)"
@@ -372,9 +359,9 @@ class Probe(Configurable):
                     raise (o)
 
         else:
-            attempt_iterator = tqdm.tqdm(total=total_prompts, initial=completed_prompts, leave=False)
+            attempt_iterator = tqdm.tqdm(attempts, leave=False)
             attempt_iterator.set_description(self.probename.replace("garak.", ""))
-            for this_attempt in attempts:
+            for this_attempt in attempt_iterator:
                 result = self._execute_attempt(this_attempt)
                 processed_attempt = self._postprocess_attempt(result)
 
@@ -382,14 +369,6 @@ class Probe(Configurable):
                     json.dumps(processed_attempt.as_dict()) + "\n"
                 )
                 attempts_completed.append(processed_attempt)
-                attempt_iterator.update(1)
-                
-                # RESUME: Save immediately as each attempt completes (serial mode)
-                if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
-                    probe_short_name = self.probename.replace("garak.probes.", "").replace("probes.", "")
-                    resumeservice.save_probe_progress(probe_short_name, processed_attempt.seq, total_prompts)
-                    resumeservice.mark_attempt_complete_by_seq(probe_short_name, processed_attempt.seq)
-                    print(f"  💾 Saved progress: attempt {processed_attempt.seq + 1}/{total_prompts}")
 
         return attempts_completed
 
@@ -471,23 +450,8 @@ class Probe(Configurable):
         if len(_config.buffmanager.buffs) > 0:
             attempts_todo = self._buff_hook(attempts_todo)
 
-        # RESUME: Filter out already-completed attempts before execution
-        total_prompts = len(attempts_todo)
-        completed_prompts = 0
-        if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
-            probe_short_name = self.probename.replace("garak.probes.", "").replace("probes.", "")
-            resume_point = resumeservice.get_resume_point(probe_short_name)
-            if resume_point > 0:
-                original_count = len(attempts_todo)
-                attempts_todo = [a for a in attempts_todo if a.seq >= resume_point]
-                filtered_count = len(attempts_todo)
-                completed_prompts = resume_point  # Track how many are already done
-                logging.info(f"[RESUME] Filtered {original_count - filtered_count} already-completed attempts for {probe_short_name} (resuming from {resume_point})")
-                if filtered_count > 0:
-                    print(f"⏭️  Resuming from attempt {resume_point + 1}/{original_count} (skipping {resume_point} completed)")
-
         # iterate through attempts
-        attempts_completed = self._execute_all(attempts_todo, total_prompts=total_prompts, completed_prompts=completed_prompts)
+        attempts_completed = self._execute_all(attempts_todo)
 
         logging.debug(
             "probe return: %s with %s attempts", self, len(attempts_completed)

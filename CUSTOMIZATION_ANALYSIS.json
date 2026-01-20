@@ -1,0 +1,63 @@
+{
+  "new_files": [
+    "garak/resumeservice.py"
+  ],
+  "modified_files": [
+    "garak/cli.py",
+    "garak/command.py",
+    "garak/_config.py",
+    "garak/analyze/report_digest.py",
+    "garak/harnesses/probewise.py"
+  ],
+  "analysis": {
+    "garak/resumeservice.py": {
+      "status": "new",
+      "lines": 968
+    },
+    "garak/cli.py": {
+      "status": "modified",
+      "added": 340,
+      "removed": 1,
+      "total_changes": 341,
+      "custom_lines": 982,
+      "fresh_lines": 643,
+      "diff": "<50 lines>"
+    },
+    "garak/command.py": {
+      "status": "modified",
+      "added": 133,
+      "removed": 46,
+      "total_changes": 179,
+      "custom_lines": 387,
+      "fresh_lines": 300,
+      "diff": "<50 lines>"
+    },
+    "garak/_config.py": {
+      "status": "modified",
+      "added": 4,
+      "removed": 2,
+      "total_changes": 6,
+      "custom_lines": 463,
+      "fresh_lines": 461,
+      "diff": "<20 lines>"
+    },
+    "garak/analyze/report_digest.py": {
+      "status": "modified",
+      "added": 66,
+      "removed": 10,
+      "total_changes": 76,
+      "custom_lines": 629,
+      "fresh_lines": 573,
+      "diff": "<50 lines>"
+    },
+    "garak/harnesses/probewise.py": {
+      "status": "modified",
+      "added": 523,
+      "removed": 73,
+      "total_changes": 596,
+      "custom_lines": 560,
+      "fresh_lines": 110,
+      "diff": "<50 lines>"
+    }
+  }
+}

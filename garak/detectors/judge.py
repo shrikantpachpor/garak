@@ -6,19 +6,11 @@
 from typing import List
 
 from garak import _config, _plugins
+from garak.resources.red_team.evaluation import EvaluationJudge, get_token_limit
 from garak.attempt import Attempt, Message
 from garak.detectors.base import Detector
 from garak.exception import GarakException, BadGeneratorException
 from garak.generators.openai import OpenAICompatible
-
-# Try importing fastchat dependencies, skip detector if unavailable
-try:
-    from garak.resources.red_team.evaluation import EvaluationJudge, get_token_limit
-    FASTCHAT_AVAILABLE = True
-except (ImportError, ModuleNotFoundError):
-    EvaluationJudge = object  # Fallback base class
-    get_token_limit = lambda x: 4096  # Fallback function
-    FASTCHAT_AVAILABLE = False
 
 
 class ModelAsJudge(Detector, EvaluationJudge):

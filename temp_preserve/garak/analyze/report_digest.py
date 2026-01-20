@@ -140,10 +140,8 @@ def _init_populate_result_db(evals, taxonomy=None):
         eval["probe"] = eval["probe"].replace("probes.", "")
         pm, pc = eval["probe"].split(".")
         detector = eval["detector"].replace("detector.", "")
-        score = (
-            eval["passed"] / eval["total_evaluated"] if eval["total_evaluated"] else 0
-        )
-        instances = eval["total_evaluated"]
+        score = eval["passed"] / eval["total"] if eval["total"] else 0
+        instances = eval["total"]
         groups = []
         if taxonomy is not None:
             # get the probe tags
@@ -361,12 +359,51 @@ def _get_calibration_info(calibration):
 
 
 def append_report_object(reportfile: IO, object: dict):
+    """Append a report object to the JSONL file.
+    
+    If the object is a digest entry and one already exists, it will be replaced
+    rather than appended to avoid duplication.
+    """
+    import tempfile
+    
+    # If this is a digest and the file already has one, we need to replace it
+    if object.get('entry_type') == 'digest':
+        try:
+            # Read all existing lines
+            reportfile.seek(0)
+            lines = reportfile.readlines()
+            
+            # Find and remove existing digest entry
+            filtered_lines = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line.strip())
+                    # Skip existing digest and completion entries - we'll add fresh ones
+                    if entry.get('entry_type') not in ('digest', 'completion'):
+                        filtered_lines.append(line)
+                except:
+                    filtered_lines.append(line)
+            
+            # Rewrite file with filtered content
+            reportfile.seek(0)
+            reportfile.truncate()
+            reportfile.writelines(filtered_lines)
+            reportfile.flush()
+        except Exception as e:
+            # If something goes wrong, just append normally
+            import logging
+            logging.warning(f"Could not filter existing digest: {e}")
+    
+    # Now append the new entry
     end_val = reportfile.seek(0, os.SEEK_END)
-    reportfile.seek(end_val - 1)
-    last_char = reportfile.read()
-    if last_char not in "\n\r":  # catch if we need to make a new line
-        reportfile.write("\n")
-    reportfile.write(json.dumps(object))
+    if end_val > 0:
+        reportfile.seek(end_val - 1)
+        last_char = reportfile.read()
+        if last_char not in "\n\r":  # catch if we need to make a new line
+            reportfile.write("\n")
+    reportfile.write(json.dumps(object, ensure_ascii=False) + "\n")
 
 
 def build_digest(report_filename: str, config=_config):
@@ -409,6 +446,25 @@ def build_digest(report_filename: str, config=_config):
         report_digest["eval"][probe_group]["_summary"] = group_info
 
         probe_result_summaries = _get_probe_result_summaries(cursor, probe_group)
+        
+        # Sort probes by probe_spec order if available
+        probe_spec_order = []
+        if "probespec" in header_content and header_content["probespec"]:
+            # Parse probe_spec: "av_spam_scanning.EICAR,av_spam_scanning.GTUBE"
+            probe_spec_order = [p.strip() for p in header_content["probespec"].split(",")]
+        
+        # Sort probe_result_summaries by probe_spec order
+        def probe_sort_key(item):
+            probe_module, probe_class, _ = item
+            probe_name = f"{probe_module}.{probe_class}"
+            try:
+                return probe_spec_order.index(probe_name)
+            except (ValueError, AttributeError):
+                return 999  # Put unspecified probes at end
+        
+        if probe_spec_order:
+            probe_result_summaries = sorted(probe_result_summaries, key=probe_sort_key)
+        
         for probe_module, probe_class, group_absolute_score in probe_result_summaries:
             report_digest["eval"][probe_group][f"{probe_module}.{probe_class}"] = {}
 

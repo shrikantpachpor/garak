@@ -1,0 +1,27 @@
+{
+  "garak/cli.py": {
+    "custom_lines": 982,
+    "fresh_lines": 643,
+    "diff": 339
+  },
+  "garak/command.py": {
+    "custom_lines": 387,
+    "fresh_lines": 300,
+    "diff": 87
+  },
+  "garak/_config.py": {
+    "custom_lines": 463,
+    "fresh_lines": 461,
+    "diff": 2
+  },
+  "garak/analyze/report_digest.py": {
+    "custom_lines": 629,
+    "fresh_lines": 573,
+    "diff": 56
+  },
+  "garak/harnesses/probewise.py": {
+    "custom_lines": 560,
+    "fresh_lines": 110,
+    "diff": 450
+  }
+}
