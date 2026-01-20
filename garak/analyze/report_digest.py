@@ -361,11 +361,52 @@ def _get_calibration_info(calibration):
 
 
 def append_report_object(reportfile: IO, object: dict):
+    """Append a report object to the JSONL file.
+    
+    If the object is a digest entry and one already exists, it will be replaced
+    rather than appended to avoid duplication.
+    """
+    import tempfile
+    import os
+    import json
+    import logging
+    
+    # If this is a digest, replace existing one
+    if object.get('entry_type') == 'digest':
+        try:
+            # Read all existing lines
+            reportfile.seek(0)
+            lines = reportfile.readlines()
+            
+            # Find and remove existing digest/completion entries
+            filtered_lines = []
+            for line in lines:
+                if not line.strip():
+                    continue
+                try:
+                    entry = json.loads(line.strip())
+                    # Skip existing digest and completion entries
+                    if entry.get('entry_type') not in ('digest', 'completion'):
+                        filtered_lines.append(line)
+                except:
+                    filtered_lines.append(line)
+            
+            # Rewrite file with filtered content
+            reportfile.seek(0)
+            reportfile.truncate()
+            reportfile.writelines(filtered_lines)
+            reportfile.flush()
+        except Exception as e:
+            logging.warning(f"Could not filter existing digest: {e}")
+    
+    # Now append the new entry
     end_val = reportfile.seek(0, os.SEEK_END)
-    reportfile.seek(end_val - 1)
-    last_char = reportfile.read()
-    if last_char not in "\n\r":  # catch if we need to make a new line
-        reportfile.write("\n")
+    if end_val > 0:
+        reportfile.seek(end_val - 1)
+        last_char = reportfile.read()
+        if last_char not in "\n\r":
+            reportfile.write("\n")
+    reportfile.write(json.dumps(object, ensure_ascii=False) + "\n")
     reportfile.write(json.dumps(object))
 
 
