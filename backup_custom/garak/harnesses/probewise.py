@@ -521,6 +521,14 @@ class ProbewiseHarness(Harness):
                             json.dumps(d, ensure_ascii=False) + "\n"
                         )
                         _config.transient.reportfile.flush()
+                        
+                        # RESUME SUPPORT: Mark attempt complete (for attempt-level granularity)
+                        # Only matters when resume_granularity="attempt"
+                        if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
+                            attempt_uuid = getattr(attempt, "uuid", None)
+                            if attempt_uuid:
+                                resumeservice.mark_attempt_complete(attempt_uuid, probe_short_name)
+                                logger.debug(f"[RESUME] Marked attempt {attempt_uuid} (seq={attempt.seq}) complete for {probe_short_name}")
                             
                     except Exception as write_e:
                         logger.exception(
