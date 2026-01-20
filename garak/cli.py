@@ -36,6 +36,18 @@ def parse_cli_plugin_config(plugin_type, args):
     return opts_cli_config
 
 
+def parse_existing_report_metadata(report_path):
+                """Parse existing report to extract original run_id and start_time.
+                
+                Args:
+                    report_path: Path to existing report.jsonl file
+                    
+                Returns:
+                    Tuple of (run_id, start_time) or (None, None) if not found
+                """
+                if not os.path.exists(report_path):
+                    return None, None
+
 def main(arguments=None) -> None:
     """Main entry point for garak runs invoked from the CLI"""
     import datetime
@@ -283,6 +295,40 @@ def main(arguments=None) -> None:
     logging.debug("args - raw argument string received: %s", arguments)
 
     args = parser.parse_args(arguments)
+
+    # Handle --list-runs
+    if hasattr(args, 'list_runs') and args.list_runs:
+        try:
+            from garak import resumeservice
+            print("\n📋 Resumable Runs:")
+            print("=" * 80)
+            runs = resumeservice.list_runs()
+            if not runs:
+                print("No resumable runs found.")
+            else:
+                for run in runs:
+                    print(f"  Run ID: {run.get('run_id', 'unknown')}")
+                    print(f"    Started: {run.get('start_time', 'unknown')}")
+                    print(f"    Granularity: {run.get('granularity', 'probe')}")
+                    print(f"    Progress: {run.get('progress', 'unknown')}")
+                    print()
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error listing runs: {e}")
+            sys.exit(1)
+
+    # Handle --delete-run
+    if hasattr(args, 'delete_run') and args.delete_run:
+        try:
+            from garak import resumeservice
+            if resumeservice.delete_run(args.delete_run):
+                print(f"✅ Deleted run: {args.delete_run}")
+            else:
+                print(f"❌ Failed to delete run: {args.delete_run}")
+            sys.exit(0)
+        except Exception as e:
+            print(f"Error deleting run: {e}")
+            sys.exit(1)
     logging.debug("args - full argparse: %s", args)
 
     for deprecated_model_option in {"-m", "--model_name", "--model_type"}.intersection(
