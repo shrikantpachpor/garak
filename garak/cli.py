@@ -36,21 +36,10 @@ def parse_cli_plugin_config(plugin_type, args):
     return opts_cli_config
 
 
-def parse_existing_report_metadata(report_path):
-                """Parse existing report to extract original run_id and start_time.
-                
-                Args:
-                    report_path: Path to existing report.jsonl file
-                    
-                Returns:
-                    Tuple of (run_id, start_time) or (None, None) if not found
-                """
-                if not os.path.exists(report_path):
-                    return None, None
-
 def main(arguments=None) -> None:
     """Main entry point for garak runs invoked from the CLI"""
     import datetime
+    import json
 
     from garak import __description__
     from garak import _config, _plugins
@@ -148,6 +137,37 @@ def main(arguments=None) -> None:
     )
     parser.add_argument(
         "--config", type=str, default=None, help="YAML or JSON config file for this run"
+    )
+    parser.add_argument(
+        "--resumable",
+        action="store_true",
+        default=_config.run.resumable,
+        help="Enable resumable scans (default: enabled)",
+    )
+    parser.add_argument(
+        "--resume",
+        type=str,
+        default=None,
+        help="Resume a previous run using the specified run ID (e.g., --resume garak-run-xxx)",
+    )
+    parser.add_argument(
+        "--list_runs",
+        action="store_true",
+        help="List unfinished runs",
+    )
+    parser.add_argument(
+        "--delete_run",
+        type=str,
+        default=None,
+        help="Delete a run by ID",
+    )
+    parser.add_argument(
+        "--resume_granularity",
+        "--resume-granularity",
+        type=str,
+        choices=["probe", "attempt"],
+        default=None,
+        help="Resume granularity: 'probe' (skip completed probes) or 'attempt' (skip completed prompts). Overrides config file.",
     )
 
     ## PLUGINS
@@ -295,40 +315,6 @@ def main(arguments=None) -> None:
     logging.debug("args - raw argument string received: %s", arguments)
 
     args = parser.parse_args(arguments)
-
-    # Handle --list-runs
-    if hasattr(args, 'list_runs') and args.list_runs:
-        try:
-            from garak import resumeservice
-            print("\n📋 Resumable Runs:")
-            print("=" * 80)
-            runs = resumeservice.list_runs()
-            if not runs:
-                print("No resumable runs found.")
-            else:
-                for run in runs:
-                    print(f"  Run ID: {run.get('run_id', 'unknown')}")
-                    print(f"    Started: {run.get('start_time', 'unknown')}")
-                    print(f"    Granularity: {run.get('granularity', 'probe')}")
-                    print(f"    Progress: {run.get('progress', 'unknown')}")
-                    print()
-            sys.exit(0)
-        except Exception as e:
-            print(f"Error listing runs: {e}")
-            sys.exit(1)
-
-    # Handle --delete-run
-    if hasattr(args, 'delete_run') and args.delete_run:
-        try:
-            from garak import resumeservice
-            if resumeservice.delete_run(args.delete_run):
-                print(f"✅ Deleted run: {args.delete_run}")
-            else:
-                print(f"❌ Failed to delete run: {args.delete_run}")
-            sys.exit(0)
-        except Exception as e:
-            print(f"Error deleting run: {e}")
-            sys.exit(1)
     logging.debug("args - full argparse: %s", args)
 
     for deprecated_model_option in {"-m", "--model_name", "--model_type"}.intersection(
@@ -392,6 +378,45 @@ def main(arguments=None) -> None:
     args = cli_args
     # stash cli_args
     _config.transient.cli_args = cli_args
+    _config.transient.args = args  # Also set args for command.py
+
+    # Handle resume argument
+    if hasattr(args, "resume") and args.resume:
+        _config.transient.resume_run_id = args.resume
+        
+        # Load resumed state early to extract model_type and generator
+        from garak import _plugins
+        import garak.resumeservice as resumeservice
+        
+        resumeservice.load()
+        state = resumeservice.get_state()
+        if state:
+            # Load model_type and generator from resumed state
+            if "model_type" in state:
+                _config.plugins.model_type = state["model_type"]
+                _config.plugins.target_type = state["model_type"]  # Set target_type for condition check
+            if "model_name" in state:
+                _config.plugins.model_name = state["model_name"]
+                _config.plugins.target_name = state["model_name"]  # Set target_name as well
+            if "generator" in state:
+                # Extract generator name from full class path
+                generator_class = state["generator"]
+                if "." in generator_class:
+                    _config.plugins.model_type = generator_class.split(".")[-2]
+                    _config.plugins.target_type = generator_class.split(".")[-2]  # Set target_type for condition check
+                    _config.plugins.model_name = generator_class.split(".")[-1]
+                    _config.plugins.target_name = generator_class.split(".")[-1]  # Set target_name as well
+            
+            # Restore generator configuration
+            if "generator_config" in state and state["generator_config"]:
+                # Merge generator config into _config.plugins.generators
+                for gen_family, gen_configs in state["generator_config"].items():
+                    if not hasattr(_config.plugins, "generators"):
+                        _config.plugins.generators = {}
+                    if gen_family not in _config.plugins.generators:
+                        _config.plugins.generators[gen_family] = {}
+                    for gen_name, gen_params in gen_configs.items():
+                        _config.plugins.generators[gen_family][gen_name] = gen_params
 
     # save args info into config
     # need to know their type: plugin, system, or run
@@ -489,6 +514,57 @@ def main(arguments=None) -> None:
                 sys.exit(1)
             finally:
                 command.end_run()
+
+        # Handle resume-related commands
+        if hasattr(args, "list_runs") and args.list_runs:
+            from garak import resumeservice
+            from datetime import datetime
+
+            runs = resumeservice.list_runs()
+            if not runs:
+                print("\n📋 No unfinished runs found.")
+                print("\nStart a new resumable scan with: garak --resumable [options]\n")
+            else:
+                print("\n📋 Resumable Runs\n")
+                
+                # Print header
+                print(f"{'#':<4} {'Run ID':<38} {'Started':<20} {'Progress':<12} {'%':<6}")
+                print("-" * 82)
+                
+                for idx, run in enumerate(runs, 1):
+                    # Calculate percentage
+                    percentage = (run['progress'] / run['total'] * 100) if run['total'] > 0 else 0
+                    
+                    # Format the timestamp more readably
+                    try:
+                        dt = datetime.fromisoformat(run['start_time'])
+                        formatted_time = dt.strftime("%Y-%m-%d %H:%M")
+                    except:
+                        formatted_time = run['start_time'][:16]
+                    
+                    # Progress format
+                    progress_str = f"{run['progress']}/{run['total']}"
+                    
+                    print(f"{idx:<4} {run['run_id']:<38} {formatted_time:<20} {progress_str:<12} {percentage:>5.1f}%")
+                
+                print("-" * 82)
+                print(f"\nTotal: {len(runs)} unfinished run(s)")
+                print("\nTo resume: garak --resume <run_id>")
+                print("To delete: garak --delete_run <run_id>\n")
+            return
+
+        if hasattr(args, "delete_run") and args.delete_run:
+            from garak import resumeservice
+
+            try:
+                resumeservice.delete_run(args.delete_run)
+                print(f"✅ Deleted run: {args.delete_run}")
+            except Exception as e:
+                print(f"❌ Failed to delete run: {e}")
+                import sys
+
+                sys.exit(1)
+            return
 
         if args.version:
             pass
@@ -612,6 +688,19 @@ def main(arguments=None) -> None:
                 logging.error(message)
                 raise ValueError(message)
 
+            # RESUME SUPPORT: Override probe spec with probes from resumed run
+            from garak import resumeservice
+            if resumeservice.enabled():
+                resumed_state = resumeservice.get_state()
+                if resumed_state and "probenames" in resumed_state:
+                    resumed_probes = resumed_state["probenames"]
+                    # Strip "probes." prefix if present for parse_plugin_spec compatibility
+                    resumed_probes_clean = [p.replace("probes.", "") for p in resumed_probes]
+                    # Convert probe list to comma-separated spec
+                    _config.plugins.probe_spec = ",".join(resumed_probes_clean)
+                    logging.info(f"Resuming run with probes from state: {resumed_probes}")
+                    print(f"🔄 Using probes from resumed run: {', '.join(resumed_probes_clean)}")
+
             parsable_specs = ["probe", "detector", "buff"]
             parsed_specs = {}
             for spec_type in parsable_specs:
@@ -643,6 +732,10 @@ def main(arguments=None) -> None:
                 f"generators.{_config.plugins.target_type}", config_root=_config
             )
 
+            # Set target_name from generator instance
+            if hasattr(generator, '__class__'):
+                _config.plugins.target_name = generator.__class__.__name__
+
             if (
                 not _cli_config_supplied
                 and generator.parallel_capable
@@ -652,6 +745,206 @@ def main(arguments=None) -> None:
                     f"This run can be sped up 🥳 Generator '{generator.fullname}' supports parallelism! Consider using `--parallel_attempts 16` (or more) to greatly accelerate your run. 🐌",
                     logging=logging,
                 )
+
+            # RESUME SUPPORT: Set up report file before start_run()
+            import uuid
+            import os
+            from pathlib import Path
+            
+            def parse_existing_report_metadata(report_path):
+                """Parse existing report to extract original run_id and start_time.
+                
+                Args:
+                    report_path: Path to existing report.jsonl file
+                    
+                Returns:
+                    Tuple of (run_id, start_time) or (None, None) if not found
+                """
+                if not os.path.exists(report_path):
+                    return None, None
+                    
+                try:
+                    with open(report_path, 'r', encoding='utf-8') as f:
+                        for line in f:
+                            if not line.strip():
+                                continue
+                            entry = json.loads(line.strip())
+                            if entry.get('entry_type') == 'init':
+                                return entry.get('run'), entry.get('start_time')
+                except Exception as e:
+                    logging.warning(f"Could not parse existing report metadata: {e}")
+                    
+                return None, None
+
+            # Set run_id first (needed for report filename)
+            if not hasattr(_config.transient, 'run_id') or not _config.transient.run_id:
+                _config.transient.run_id = str(uuid.uuid4())
+
+            # Check if resuming and restore report paths from state
+            is_resuming = hasattr(_config.transient, "resume_run_id") and _config.transient.resume_run_id
+            original_start_time = None
+            original_run_id = None
+            
+            if is_resuming:
+                # Load state to get original report paths and run_id
+                try:
+                    import garak.resumeservice as resumeservice
+                    state = resumeservice._resume_state
+                    if state:
+                        if "report_dir" in state:
+                            _config.reporting.report_dir = state["report_dir"]
+                        if "report_prefix" in state:
+                            _config.reporting.report_prefix = state["report_prefix"]
+                        # Use the original run_id for report filename consistency
+                        if "run_id" in state:
+                            # Extract UUID from full run_id to maintain hitlog consistency
+                            # State stores full format "garak-run-<uuid>-<timestamp>"
+                            # but transient.run_id should be just the UUID for hitlog
+                            from garak import resumeservice
+                            full_run_id = state["run_id"]
+                            original_run_id = resumeservice.extract_uuid_from_run_id(full_run_id)
+                            _config.transient.run_id = original_run_id
+                            logging.info(f"Loaded run_id from state: {original_run_id}")
+                except Exception as e:
+                    logging.warning(f"Could not restore report paths from state: {e}")
+                
+                # NOW construct report path using the loaded run_id
+                report_dir = _config.transient.data_dir / _config.reporting.report_dir
+                report_prefix = _config.reporting.report_prefix or f"garak.{_config.transient.run_id}"
+                expected_report_path = str(report_dir / f"{report_prefix}.report.jsonl")
+                
+                # Parse existing report to verify and get original start_time
+                parsed_run_id, original_start_time = parse_existing_report_metadata(expected_report_path)
+                
+                # If report exists and has a run_id, use it (fallback in case state was missing)
+                if parsed_run_id and not original_run_id:
+                    logging.info(f"Loaded run_id from existing report: {parsed_run_id}")
+                    original_run_id = parsed_run_id
+                    _config.transient.run_id = original_run_id
+                elif parsed_run_id and parsed_run_id != original_run_id:
+                    # Mismatch - warn but proceed with state's run_id
+                    logging.warning(f"run_id mismatch: state={original_run_id}, report={parsed_run_id}. Using state.")
+                
+                if original_start_time:
+                    logging.info(f"Preserving original start_time: {original_start_time}")
+                    _config.transient.original_start_time = original_start_time
+                    # CRITICAL: Update starttime_iso to use the ORIGINAL timestamp, not current time
+                    _config.transient.starttime_iso = original_start_time
+                else:
+                    logging.warning("Could not find original start_time in existing report")
+
+            # Set up report directory
+            report_dir = _config.transient.data_dir / _config.reporting.report_dir
+            report_dir.mkdir(parents=True, exist_ok=True)
+
+            # Set up report filename
+            report_prefix = (
+                _config.reporting.report_prefix or f"garak.{_config.transient.run_id}"
+            )
+            _config.transient.report_filename = str(
+                report_dir / f"{report_prefix}.report.jsonl"
+            )
+
+            # Set file mode - append if resuming and file exists, otherwise write
+            file_mode = "a" if (is_resuming and os.path.exists(_config.transient.report_filename)) else "w"
+            
+            # Open report file
+            _config.transient.reportfile = open(
+                _config.transient.report_filename, file_mode, buffering=1, encoding="utf-8"
+            )
+
+            # Open hitlog file if needed
+            hitlog_filename = str(report_dir / f"{report_prefix}.hitlog.jsonl")
+            hitlog_file_mode = "a" if (is_resuming and os.path.exists(hitlog_filename)) else "w"
+            _config.transient.hitlogfile = open(
+                hitlog_filename, hitlog_file_mode, buffering=1, encoding="utf-8"
+            )
+
+            # Write setup and init entries to report (only if not resuming)
+            if not is_resuming:
+                # Write setup entry first
+                setup_dict = {"entry_type": "start_run setup"}
+                # Fields to exclude from run_params list only (not from actual config values)
+                exclude_from_params_list = {"resumable", "resume_granularity"}
+                
+                for k, v in _config.__dict__.items():
+                    if k[:2] != "__" and type(v) in (
+                        str,
+                        int,
+                        bool,
+                        dict,
+                        tuple,
+                        list,
+                        set,
+                        type(None),
+                    ):
+                        # Filter resume-specific params from run_params list only
+                        if k == "run_params":
+                            filtered_params = [p for p in v if p not in exclude_from_params_list]
+                            setup_dict[f"_config.{k}"] = filtered_params
+                        else:
+                            setup_dict[f"_config.{k}"] = v
+                for subset in "system transient run plugins reporting".split():
+                    for k, v in getattr(_config, subset).__dict__.items():
+                        if k[:2] != "__" and type(v) in (
+                            str,
+                            int,
+                            bool,
+                            dict,
+                            tuple,
+                            list,
+                            set,
+                            type(None),
+                        ):
+                            setup_dict[f"{subset}.{k}"] = v
+                _config.transient.reportfile.write(
+                    json.dumps(setup_dict, ensure_ascii=False) + "\n"
+                )
+                
+                # Then write init entry
+                init_entry = {
+                    "entry_type": "init",
+                    "garak_version": _config.version,
+                    "start_time": _config.transient.starttime_iso,
+                    "run": _config.transient.run_id,
+                }
+                _config.transient.reportfile.write(
+                    json.dumps(init_entry, ensure_ascii=False) + "\n"
+                )
+            else:
+                # Resuming - write resume metadata entry
+                import datetime
+                resume_entry = {
+                    "entry_type": "resume_info",
+                    "resumed_at": datetime.datetime.now().isoformat(),
+                    "original_start_time": _config.transient.original_start_time if hasattr(_config.transient, "original_start_time") else None,
+                    "original_run_id": _config.transient.run_id,
+                    "resume_from_file": _config.transient.report_filename,
+                }
+                # Add information about completed attempts from state
+                try:
+                    import garak.resumeservice as resumeservice
+                    if resumeservice._resume_state:
+                        if "completed_probes" in resumeservice._resume_state:
+                            resume_entry["completed_probes"] = list(resumeservice._resume_state["completed_probes"])
+                        if "probes" in resumeservice._resume_state:
+                            # Include resume point per probe
+                            resume_info_per_probe = {}
+                            for probe_name, probe_info in resumeservice._resume_state["probes"].items():
+                                if isinstance(probe_info, dict) and "prompt_index" in probe_info:
+                                    resume_info_per_probe[probe_name] = {
+                                        "resume_from_seq": probe_info.get("prompt_index", 0) + 1,
+                                        "total_prompts": probe_info.get("total_prompts", 0)
+                                    }
+                            if resume_info_per_probe:
+                                resume_entry["resume_points"] = resume_info_per_probe
+                except Exception as e:
+                    logging.warning(f"Could not add resume state details: {e}")
+                
+                _config.transient.reportfile.write(
+                    json.dumps(resume_entry, ensure_ascii=False) + "\n"
+                )
+                logging.info("Wrote resume_info entry to report")
 
             command.start_run()  # start the run now that all config validation is complete
             print(f"📜 reporting to {_config.transient.report_filename}")
