@@ -204,15 +204,37 @@ git add garak\harnesses\probewise.py
 git commit -m "Add resume integration to probewise harness"
 ```
 
+**CRITICAL for Attempt-Level Resumption:**
+
+The probewise.py file MUST call `resumeservice.mark_attempt_complete()` after writing each attempt to the report. This is what enables attempt-level granularity to work correctly.
+
+**Key integration points in probewise.py:**
+1. Import: `import garak.resumeservice as resumeservice` (at top)
+2. In run() method: Check resume state before probe execution
+3. Skip completed probes/attempts based on state
+4. **CRITICAL**: After writing each attempt (status=2), call:
+   ```python
+   if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
+       attempt_uuid = getattr(attempt, "uuid", None)
+       if attempt_uuid:
+           resumeservice.mark_attempt_complete(attempt_uuid, probe_short_name)
+   ```
+5. Mark probes complete after all attempts finish
+
 **If structures differ significantly** (manual integration needed):
 ```powershell
 code --diff e:\SHRIKANT\projects\garak-resume-2\backup_custom\garak\harnesses\probewise.py garak\harnesses\probewise.py
 
-# Key changes to add:
-# 1. Import: import garak.resumeservice as resumeservice
-# 2. In run() method: Check resume state before probe execution
-# 3. Skip completed probes/attempts based on state
-# 4. Mark probes/attempts complete after execution
+# Key changes to add (in order of location in file):
+# 1. Import resumeservice at top
+# 2. In run() - Initialize/load resume state
+# 3. In run() - Skip completed probes  
+# 4. In run() - Check for incomplete attempts on resume
+# 5. In run() - For each attempt after detector evaluation:
+#    - Write attempt with status=2 to report
+#    - Call mark_attempt_complete() if granularity=="attempt"
+# 6. In run() - Mark probe complete after all attempts
+# 7. In run() - Mark run complete after all probes
 ```
 
 ---
