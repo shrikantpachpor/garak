@@ -1,0 +1,89 @@
+{
+  "migration_date": "2026-01-20",
+  "source": "Mixed garak version with resume feature",
+  "target": "Latest garak from GitHub (commit 666ca84)",
+  "steps_completed": [
+    {
+      "step": "Core garak files replaced with fresh version",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Replace garak core with latest version",
+      "status": "\u2705"
+    },
+    {
+      "step": "Added resumeservice.py",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Add resumeservice.py - core resume service module",
+      "status": "\u2705"
+    },
+    {
+      "step": "Merged _config.py",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Merge _config.py - add resume configuration",
+      "status": "\u2705"
+    },
+    {
+      "step": "Merged cli.py",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Merge cli.py - add resume CLI interface",
+      "status": "\u2705"
+    },
+    {
+      "step": "Merged command.py",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Merge command.py - add cleanup and completion logic",
+      "status": "\u2705"
+    },
+    {
+      "step": "Merged analyze/report_digest.py",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Merge report_digest.py - add smart digest replacement",
+      "status": "\u2705"
+    },
+    {
+      "step": "Merged harnesses/probewise.py (used custom version)",
+      "status": "\u2705"
+    },
+    {
+      "step": "Committed: Merge probewise.py - add resume integration",
+      "status": "\u2705"
+    },
+    {
+      "step": "All files passed syntax validation",
+      "status": "\u2705"
+    },
+    {
+      "step": "Basic functionality tests passed",
+      "status": "\u2705"
+    }
+  ],
+  "files_modified": [
+    "garak/resumeservice.py (new)",
+    "garak/cli.py",
+    "garak/command.py",
+    "garak/_config.py",
+    "garak/analyze/report_digest.py",
+    "garak/harnesses/probewise.py"
+  ],
+  "git_commits": [
+    "10e461f Merge probewise.py - add resume integration",
+    "76388a6 Merge report_digest.py - add smart digest replacement",
+    "dc98637 Merge command.py - add cleanup and completion logic",
+    "1ef56b0 Merge cli.py - add resume CLI interface",
+    "7af516c Merge _config.py - add resume configuration",
+    "552d081 Add resumeservice.py - core resume service module",
+    "c20ccdc Replace garak core with latest version",
+    "516c1fc Initial commit: Current state with resume feature (mixed garak versions)"
+  ]
+}
