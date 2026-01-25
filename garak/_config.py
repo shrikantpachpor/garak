@@ -122,7 +122,7 @@ run.seed = None
 run.soft_probe_prompt_cap = 64
 run.target_lang = "en"
 run.langproviders = []
-run.resumable = False  # Enable resumable scans
+run.resumable = True  # Default for resumable flag
 run.resume_granularity = "probe"  # Default resume granularity: 'probe' or 'attempt'
 
 # placeholder

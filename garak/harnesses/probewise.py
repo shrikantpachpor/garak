@@ -92,38 +92,41 @@ class ProbewiseHarness(Harness):
 
     def _find_incomplete_attempts(self, probename: str, resume_point: int):
         """Find attempts that have status=1 but missing status=2 in the report.
-        
+
         These are attempts that were executed but interrupted before detectors ran.
-        
+
         Args:
             probename: Full probe name (e.g., "probes.av_spam_scanning.GTUBE")
             resume_point: The prompt index we're resuming from
-            
+
         Returns:
             List of attempt objects that need detector evaluation
         """
         import json
         import garak.attempt
-        
+
         probe_classname = probename.replace("probes.", "")
         status1_attempts = {}  # seq -> attempt dict
-        status2_seqs = set()   # seqs that have status=2
-        
+        status2_seqs = set()  # seqs that have status=2
+
         # Get report filename to read separately
         report_path = _config.transient.report_filename
         if not report_path or not os.path.exists(report_path):
             return []
-        
+
         # Open a separate read handle (main file is open in append mode)
         try:
-            with open(report_path, 'r', encoding='utf-8') as read_handle:
+            with open(report_path, "r", encoding="utf-8") as read_handle:
                 for line in read_handle:
                     try:
                         entry = json.loads(line.strip())
-                        if entry.get("entry_type") == "attempt" and entry.get("probe_classname") == probe_classname:
+                        if (
+                            entry.get("entry_type") == "attempt"
+                            and entry.get("probe_classname") == probe_classname
+                        ):
                             seq = entry.get("seq")
                             status = entry.get("status")
-                            
+
                             if status == 1 and seq < resume_point:
                                 # This is a status=1 entry for an attempt before resume point
                                 status1_attempts[seq] = entry
@@ -135,14 +138,14 @@ class ProbewiseHarness(Harness):
         except Exception as e:
             logger.error(f"Error reading report for incomplete attempts: {e}")
             return []
-        
+
         # Find attempts with status=1 but no status=2
         incomplete_seqs = set(status1_attempts.keys()) - status2_seqs
         incomplete_attempts = []
-        
+
         for seq in sorted(incomplete_seqs):
             entry = status1_attempts[seq]
-            
+
             # Create a minimal Attempt-like object with as_dict() method
             # We don't need full Attempt validation since these were already validated
             class MinimalAttempt:
@@ -157,32 +160,38 @@ class ProbewiseHarness(Harness):
                     self.goal = data.get("goal", "")
                     self.detector_results = data.get("detector_results", {})
                     self.conversations = data.get("conversations", [])
-                    self.reverse_translation_outputs = data.get("reverse_translation_outputs", [])
+                    self.reverse_translation_outputs = data.get(
+                        "reverse_translation_outputs", []
+                    )
                     # Store prompt and outputs as-is (already serialized)
                     self._prompt_data = data.get("prompt", {})
                     self._outputs_data = data.get("outputs", [])
                     # Cache outputs as Message objects for evaluator
                     self._outputs_cache = None
                     self._prompt_cache = None
-                
+
                 @property
                 def prompt(self):
                     """Return prompt as Conversation object (for evaluator)"""
                     if self._prompt_cache is None:
                         from garak.attempt import Conversation
+
                         # Reconstruct Conversation from the stored dict
                         if isinstance(self._prompt_data, dict):
-                            self._prompt_cache = Conversation.from_dict(self._prompt_data)
+                            self._prompt_cache = Conversation.from_dict(
+                                self._prompt_data
+                            )
                         else:
                             # Fallback to empty conversation
                             self._prompt_cache = Conversation([])
                     return self._prompt_cache
-                
+
                 @property
                 def outputs(self):
                     """Return output messages as a list (for evaluator)"""
                     if self._outputs_cache is None:
                         from garak.attempt import Message
+
                         messages = []
                         if isinstance(self._outputs_data, list):
                             for output in self._outputs_data:
@@ -193,14 +202,14 @@ class ProbewiseHarness(Harness):
                                         data_path=output.get("data_path"),
                                         data_type=output.get("data_type"),
                                         data_checksum=output.get("data_checksum"),
-                                        notes=output.get("notes", {})
+                                        notes=output.get("notes", {}),
                                     )
                                     messages.append(msg)
                                 elif isinstance(output, str):
                                     messages.append(Message(text=output, lang="en"))
                         self._outputs_cache = messages
                     return self._outputs_cache
-                    
+
                 def as_dict(self):
                     """Return dictionary representation for report writing"""
                     return {
@@ -219,11 +228,12 @@ class ProbewiseHarness(Harness):
                         "conversations": self.conversations,
                         "reverse_translation_outputs": self.reverse_translation_outputs,
                     }
-                
+
                 def outputs_for(self, lang_spec):
                     """Return output messages for detector evaluation"""
                     # Reconstruct Message objects from outputs_data
                     from garak.attempt import Message
+
                     messages = []
                     if isinstance(self._outputs_data, list):
                         for output in self._outputs_data:
@@ -234,17 +244,19 @@ class ProbewiseHarness(Harness):
                                     data_path=output.get("data_path"),
                                     data_type=output.get("data_type"),
                                     data_checksum=output.get("data_checksum"),
-                                    notes=output.get("notes", {})
+                                    notes=output.get("notes", {}),
                                 )
                                 messages.append(msg)
                             elif isinstance(output, str):
                                 messages.append(Message(text=output, lang=lang_spec))
                     return messages
-            
+
             attempt = MinimalAttempt(entry)
             incomplete_attempts.append(attempt)
-        
-        logger.info(f"[RESUME] Found {len(incomplete_attempts)} incomplete attempts for {probename}")
+
+        logger.info(
+            f"[RESUME] Found {len(incomplete_attempts)} incomplete attempts for {probename}"
+        )
         return incomplete_attempts
 
     def run(self, model, probenames, evaluator, buff_names=None):
@@ -257,26 +269,34 @@ class ProbewiseHarness(Harness):
         # RESUME SUPPORT: Initialize or resume run
         from garak import resumeservice
 
-        logger.info(f"Resume setup: enabled={resumeservice.enabled()}, resumable={_config.run.resumable}")
+        logger.info(
+            f"Resume setup: enabled={resumeservice.enabled()}, resumable={_config.run.resumable}"
+        )
         if not resumeservice.enabled():
             # New run - initialize if resumable
             if _config.run.resumable:
-                logger.info(f"Initializing new resumable run with granularity={resumeservice.get_granularity()}")
+                logger.info(
+                    f"Initializing new resumable run with granularity={resumeservice.get_granularity()}"
+                )
                 # Pass existing transient.run_id to maintain consistency across reports/hitlog
-                existing_uuid = str(_config.transient.run_id) if _config.transient.run_id else None
-                run_id = resumeservice.initialize_new_run(probenames, model, existing_run_uuid=existing_uuid)
+                existing_uuid = (
+                    str(_config.transient.run_id) if _config.transient.run_id else None
+                )
+                run_id = resumeservice.initialize_new_run(
+                    probenames, model, existing_run_uuid=existing_uuid
+                )
                 # Extract UUID from full run_id - it should match the existing UUID we passed in
                 uuid_part = resumeservice.extract_uuid_from_run_id(run_id)
                 _config.transient.run_id = uuid_part
                 granularity = resumeservice.get_granularity()
                 logger.info(f"Initialized run {run_id} with granularity={granularity}")
-                print(
-                    f"🆔 Run ID: {run_id} ({granularity}-level resume enabled)"
-                )
+                print(f"🆔 Run ID: {run_id} ({granularity}-level resume enabled)")
                 print(f"   Use --resume {run_id} to continue if interrupted")
         else:
             # Resume mode - load the state
-            logger.info(f"Loading resume state for run {_config.transient.resume_run_id}")
+            logger.info(
+                f"Loading resume state for run {_config.transient.resume_run_id}"
+            )
             resumeservice.load()
             symbol, msg = resumeservice.start_msg()
             if msg:
@@ -357,11 +377,15 @@ class ProbewiseHarness(Harness):
                 if saved_probe_state:
                     resume_point = saved_probe_state.get("prompt_index", -1) + 1
                     total_prompts_saved = saved_probe_state.get("total_prompts", 0)
-                    
+
                     # If all attempts were completed, skip this probe entirely
                     if resume_point >= total_prompts_saved and total_prompts_saved > 0:
-                        logger.info(f"All {total_prompts_saved} attempts for {probename} already completed (from saved state), skipping probe")
-                        print(f"✅ All {total_prompts_saved} attempts for {probename} already completed")
+                        logger.info(
+                            f"All {total_prompts_saved} attempts for {probename} already completed (from saved state), skipping probe"
+                        )
+                        print(
+                            f"✅ All {total_prompts_saved} attempts for {probename} already completed"
+                        )
                         # Mark probe as complete and continue to next probe
                         resumeservice.mark_probe_complete(probename)
                         continue
@@ -371,16 +395,27 @@ class ProbewiseHarness(Harness):
                 # These are attempts that were executed but interrupted before detectors ran
                 incomplete_attempts = []
                 probe_short_name = probename.replace("probes.", "")
-                if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
+                if (
+                    resumeservice.enabled()
+                    and resumeservice.get_granularity() == "attempt"
+                ):
                     resume_point = resumeservice.get_resume_point(probe_short_name)
                     if resume_point > 0:
                         # This is a resumed run - check report for incomplete attempts
-                        logger.info(f"[RESUME] Checking report for incomplete attempts for {probe_short_name}")
-                        incomplete_attempts = self._find_incomplete_attempts(probename, resume_point)
+                        logger.info(
+                            f"[RESUME] Checking report for incomplete attempts for {probe_short_name}"
+                        )
+                        incomplete_attempts = self._find_incomplete_attempts(
+                            probename, resume_point
+                        )
                         if incomplete_attempts:
-                            logger.info(f"[RESUME] Found {len(incomplete_attempts)} incomplete attempts (status=1 without status=2)")
-                            print(f"🔄 Completing detector evaluation for {len(incomplete_attempts)} interrupted attempts")
-                
+                            logger.info(
+                                f"[RESUME] Found {len(incomplete_attempts)} incomplete attempts (status=1 without status=2)"
+                            )
+                            print(
+                                f"🔄 Completing detector evaluation for {len(incomplete_attempts)} interrupted attempts"
+                            )
+
                 logger.info(f"Calling probe.probe() for {probename}")
                 attempts = probe.probe(model)
                 logger.info(f"probe.probe() returned for {probename}")
@@ -391,16 +426,18 @@ class ProbewiseHarness(Harness):
 
                 # Convert to list to get total count
                 attempts = list(attempts)
-                
+
                 # RESUME: Merge incomplete attempts with new attempts
                 # Incomplete attempts need detector evaluation but not re-execution
                 if incomplete_attempts:
                     # Combine: incomplete attempts first (need detectors only), then new attempts (freshly executed)
                     all_attempts = incomplete_attempts + attempts
-                    logger.info(f"[RESUME] Processing {len(incomplete_attempts)} incomplete + {len(attempts)} new attempts")
+                    logger.info(
+                        f"[RESUME] Processing {len(incomplete_attempts)} incomplete + {len(attempts)} new attempts"
+                    )
                 else:
                     all_attempts = attempts
-                
+
                 # Get total_prompts - either from state if resuming, or from current attempts
                 saved_state = resumeservice.get_probe_state(probe_short_name)
                 if saved_state and "total_prompts" in saved_state:
@@ -413,32 +450,42 @@ class ProbewiseHarness(Harness):
                         resume_point = resumeservice.get_resume_point(probe_short_name)
                         if resume_point > 0:
                             # Total = resume_point + remaining attempts
-                            total_prompts = resume_point + len(attempts)  # Use 'attempts' not 'all_attempts'
+                            total_prompts = resume_point + len(
+                                attempts
+                            )  # Use 'attempts' not 'all_attempts'
                         else:
                             total_prompts = len(all_attempts)
                     else:
                         total_prompts = 0
-                
-                logger.info(f"Probe {probename}: {len(all_attempts)} attempts to process (total: {total_prompts})")
+
+                logger.info(
+                    f"Probe {probename}: {len(all_attempts)} attempts to process (total: {total_prompts})"
+                )
 
                 if not all_attempts:
-                    logger.info(f"All attempts for {probename} already completed, skipping probe")
+                    logger.info(
+                        f"All attempts for {probename} already completed, skipping probe"
+                    )
                     print(f"✅ All attempts for {probename} already completed")
                     resumeservice.mark_probe_complete(probename)
                     continue
 
-                #Evaluate attempts with detectors - use original interface that passes Attempt objects
+                # Evaluate attempts with detectors - use original interface that passes Attempt objects
                 probe_category = (
                     probename.split(".")[1]
                     if len(probename.split(".")) > 1
                     else probename
                 )
                 probe_short_name = probename.replace("probes.", "")
-                logger.info(f"Starting to process {len(all_attempts)} attempts for {probe_short_name}")
+                logger.info(
+                    f"Starting to process {len(all_attempts)} attempts for {probe_short_name}"
+                )
                 # FIXED: Collect attempts with detector results for evaluator
                 attempts_with_results = []
                 for attempt in all_attempts:
-                    logger.info(f"[RESUME DEBUG] Processing attempt {attempt.seq} for {probe_short_name}")
+                    logger.info(
+                        f"[RESUME DEBUG] Processing attempt {attempt.seq} for {probe_short_name}"
+                    )
                     for detector in detectors:
                         logger.debug(
                             f"Evaluating with detector {detector.__class__.__name__}"
@@ -475,10 +522,10 @@ class ProbewiseHarness(Harness):
                                 )
                             else:
                                 attempt.detector_results[detector_key] = [0.0]
-                    
+
                     # Add attempt to list for evaluator after all its detectors complete
                     attempts_with_results.append(attempt)
-                    
+
                     # Write attempt with detector results to report (status=2)
                     try:
                         if hasattr(attempt, "as_dict"):
@@ -512,7 +559,10 @@ class ProbewiseHarness(Harness):
                         d["status"] = 2
 
                         try:
-                            from garak.serializers import normalize_attempt_for_persistence
+                            from garak.serializers import (
+                                normalize_attempt_for_persistence,
+                            )
+
                             normalize_attempt_for_persistence(d)
                         except Exception:
                             pass
@@ -521,15 +571,7 @@ class ProbewiseHarness(Harness):
                             json.dumps(d, ensure_ascii=False) + "\n"
                         )
                         _config.transient.reportfile.flush()
-                        
-                        # RESUME SUPPORT: Mark attempt complete (for attempt-level granularity)
-                        # Only matters when resume_granularity="attempt"
-                        if resumeservice.enabled() and resumeservice.get_granularity() == "attempt":
-                            attempt_uuid = getattr(attempt, "uuid", None)
-                            if attempt_uuid:
-                                resumeservice.mark_attempt_complete(attempt_uuid, probe_short_name)
-                                logger.debug(f"[RESUME] Marked attempt {attempt_uuid} (seq={attempt.seq}) complete for {probe_short_name}")
-                            
+
                     except Exception as write_e:
                         logger.exception(
                             f"Failed to write attempt entry for probe {probename}: {write_e}"

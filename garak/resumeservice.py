@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 from garak import _config
-from garak.exception import GarakException
+from garak.exception import GarakException, ResumeValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,7 @@ class RunManager:
 
     def generate_run_id(self, existing_uuid: str = None) -> str:
         """Generate unique run ID with timestamp.
-        
+
         Args:
             existing_uuid: Optional UUID to use instead of generating a new one.
                           Useful for maintaining consistency with transient.run_id.
@@ -91,7 +91,7 @@ class RunManager:
             elif isinstance(obj, list):
                 return [convert_sets_to_lists(item) for item in obj]
             return obj
-        
+
         serializable_state = convert_sets_to_lists(state)
 
         try:
@@ -154,12 +154,16 @@ class RunManager:
                 )
 
             # Convert lists back to sets for internal use
-            if "completed_probes" in state and isinstance(state["completed_probes"], list):
+            if "completed_probes" in state and isinstance(
+                state["completed_probes"], list
+            ):
                 state["completed_probes"] = set(state["completed_probes"])
-            
-            if "completed_attempts" in state and isinstance(state["completed_attempts"], list):
+
+            if "completed_attempts" in state and isinstance(
+                state["completed_attempts"], list
+            ):
                 state["completed_attempts"] = set(state["completed_attempts"])
-            
+
             if "probe_attempts" in state and isinstance(state["probe_attempts"], dict):
                 # Convert nested lists to sets
                 for probe_name, attempts in state["probe_attempts"].items():
@@ -192,7 +196,7 @@ class RunManager:
                     # Only include runs that are not finished and have valid probe data
                     finished = state.get("finished", False)
                     probenames = state.get("probenames", [])
-                    
+
                     # Skip runs without probe information (invalid/corrupted state)
                     if not probenames or finished:
                         continue
@@ -201,10 +205,10 @@ class RunManager:
                     # Handle None or empty start_time values
                     if not start_time:
                         start_time = "1970-01-01T00:00:00"
-                    
+
                     total = len(probenames)
                     completed = len(state.get("completed_probes", []))
-                    
+
                     runs.append(
                         {
                             "run_id": d.name,
@@ -260,18 +264,18 @@ def enabled() -> bool:
 
 def get_current_run_id() -> str:
     """Get the current run ID, whether it's a new run or resumed run.
-    
+
     Returns the active run ID or None if no run is active.
     """
     # First check resume_run_id (set for both new runs and resumed runs)
     if hasattr(_config.transient, "resume_run_id") and _config.transient.resume_run_id:
         return _config.transient.resume_run_id
-    
+
     # Fallback to run_id (should not be needed, but just in case)
     if hasattr(_config.transient, "run_id") and _config.transient.run_id:
         logger.warning("Using run_id instead of resume_run_id for state save")
         return _config.transient.run_id
-    
+
     logger.error("No run_id found in transient config!")
     return None
 
@@ -288,7 +292,7 @@ def start_msg() -> Tuple[str, str]:
     run_id = _config.transient.resume_run_id
     if _resume_state:
         granularity = _resume_state.get("granularity", "probe")
-        
+
         if granularity == "attempt":
             completed_count = len(_resume_state.get("completed_attempts", set()))
             # Estimate total attempts based on completed + expected from remaining probes
@@ -300,7 +304,7 @@ def start_msg() -> Tuple[str, str]:
             completed_count = len(_resume_state.get("completed_probes", set()))
             total_count = len(_resume_state.get("probenames", []))
             msg = f"Resuming run {run_id} (probe-level): {completed_count}/{total_count} probes completed"
-        
+
         return ("🔄", msg)
 
     return ("", "")
@@ -348,7 +352,7 @@ def get_state() -> Optional[Dict]:
     if enabled():
         if _run_manager is None:
             _run_manager = RunManager()
-        
+
         run_id = _config.transient.resume_run_id
         try:
             state = _run_manager.load_state(run_id)
@@ -363,6 +367,21 @@ def get_state() -> Optional[Dict]:
 
 
 # Public API for Harnesses
+
+
+def is_probe_resumable(probe_instance) -> bool:
+    """Check if a probe instance supports resume functionality.
+
+    Checks the probe's supports_resume attribute. TreeSearchProbe and
+    IterativeProbe set this to False due to complex internal state.
+
+    Args:
+        probe_instance: Instance of a probe class
+
+    Returns:
+        True if probe supports resume, False otherwise
+    """
+    return getattr(probe_instance, "supports_resume", True)
 
 
 def should_skip_probe(probe_classname: str) -> bool:
@@ -424,13 +443,13 @@ def get_run_id() -> Optional[str]:
 
 def extract_uuid_from_run_id(run_id: str) -> str:
     """Extract the UUID portion from a full run_id.
-    
+
     Format: garak-run-<uuid>-<timestamp>
     Returns: <uuid>
-    
+
     Args:
         run_id: Full run_id string
-        
+
     Returns:
         UUID string (36 chars), or the input if it's already just a UUID
     """
@@ -448,7 +467,9 @@ def extract_uuid_from_run_id(run_id: str) -> str:
     return run_id
 
 
-def initialize_new_run(probenames: List[str], generator=None, existing_run_uuid: str = None) -> str:
+def initialize_new_run(
+    probenames: List[str], generator=None, existing_run_uuid: str = None
+) -> str:
     """Initialize a new resumable run.
 
     Args:
@@ -460,7 +481,9 @@ def initialize_new_run(probenames: List[str], generator=None, existing_run_uuid:
         Generated run ID.
     """
     # Delegate to the version with attempt support
-    return initialize_new_run_with_attempts(probenames, generator, existing_run_uuid=existing_run_uuid)
+    return initialize_new_run_with_attempts(
+        probenames, generator, existing_run_uuid=existing_run_uuid
+    )
 
 
 def mark_run_complete() -> None:
@@ -509,25 +532,25 @@ def delete_run(run_id: str) -> None:
 
 def get_granularity() -> str:
     """Get the configured resume granularity.
-    
+
     Configuration hierarchy (highest to lowest priority):
     0. Resumed state (when resuming an existing run - LOCKED to original)
     1. CLI argument (--resume_granularity) - for NEW runs or explicit override
     2. Environment variable (GARAK_RESUME_GRANULARITY)
     3. Config file (run.resume_granularity)
     4. Default ('probe')
-    
+
     Returns:
         'probe' or 'attempt' based on configuration.
     """
     # 0. When resuming, ALWAYS use the original run's granularity (unless CLI explicitly overrides)
     if _resume_state and "granularity" in _resume_state:
         state_granularity = _resume_state["granularity"]
-        
+
         # Allow CLI to override even on resume (for debugging/testing)
-        if hasattr(_config.transient, 'args') and _config.transient.args:
-            cli_value = getattr(_config.transient.args, 'resume_granularity', None)
-            if cli_value and cli_value in ('probe', 'attempt'):
+        if hasattr(_config.transient, "args") and _config.transient.args:
+            cli_value = getattr(_config.transient.args, "resume_granularity", None)
+            if cli_value and cli_value in ("probe", "attempt"):
                 if cli_value != state_granularity:
                     logger.warning(
                         f"⚠️  Overriding resumed run's granularity from '{state_granularity}' to '{cli_value}' "
@@ -535,32 +558,34 @@ def get_granularity() -> str:
                     )
                 logger.debug(f"Using resume granularity from CLI override: {cli_value}")
                 return cli_value
-        
+
         # Use the original run's granularity
-        logger.debug(f"Using resume granularity from resumed state: {state_granularity}")
+        logger.debug(
+            f"Using resume granularity from resumed state: {state_granularity}"
+        )
         return state_granularity
-    
+
     # For NEW runs, check configuration hierarchy
-    
+
     # 1. Check CLI argument (highest priority for new runs)
-    if hasattr(_config.transient, 'args') and _config.transient.args:
-        cli_value = getattr(_config.transient.args, 'resume_granularity', None)
-        if cli_value and cli_value in ('probe', 'attempt'):
+    if hasattr(_config.transient, "args") and _config.transient.args:
+        cli_value = getattr(_config.transient.args, "resume_granularity", None)
+        if cli_value and cli_value in ("probe", "attempt"):
             logger.debug(f"Using resume granularity from CLI: {cli_value}")
             return cli_value
-    
+
     # 2. Check environment variable
-    env_value = os.getenv('GARAK_RESUME_GRANULARITY')
-    if env_value and env_value.lower() in ('probe', 'attempt'):
+    env_value = os.getenv("GARAK_RESUME_GRANULARITY")
+    if env_value and env_value.lower() in ("probe", "attempt"):
         logger.debug(f"Using resume granularity from environment: {env_value.lower()}")
         return env_value.lower()
-    
+
     # 3. Check config file
     granularity = getattr(_config.run, "resume_granularity", "probe")
     if granularity in ("probe", "attempt"):
         logger.debug(f"Using resume granularity from config: {granularity}")
         return granularity
-    
+
     # 4. Default
     logger.warning(f"Invalid resume_granularity '{granularity}', using default 'probe'")
     return "probe"
@@ -568,87 +593,89 @@ def get_granularity() -> str:
 
 def should_skip_attempt(attempt_uuid: str) -> bool:
     """Check if an attempt should be skipped (already completed).
-    
+
     Only used when resume_granularity is 'attempt'.
-    
+
     Args:
         attempt_uuid: UUID of the attempt to check
-        
+
     Returns:
         True if attempt is already completed, False otherwise.
     """
     if not enabled() or _resume_state is None:
         return False
-    
+
     # Only skip attempts if we're in attempt-level mode
     if get_granularity() != "attempt":
         return False
-    
+
     completed_attempts = _resume_state.get("completed_attempts", set())
     return str(attempt_uuid) in completed_attempts
 
 
 def mark_attempt_complete(attempt_uuid: str, probe_classname: str) -> None:
     """Mark an attempt as completed and save state.
-    
+
     Only used when resume_granularity is 'attempt'.
-    
+
     Args:
         attempt_uuid: UUID of the completed attempt
         probe_classname: Name of the probe that generated this attempt
     """
     if not enabled() or _resume_state is None:
         return
-    
+
     # Only track attempts if we're in attempt-level mode
     if get_granularity() != "attempt":
         return
-    
+
     # Initialize completed_attempts set if it doesn't exist
     if "completed_attempts" not in _resume_state:
         _resume_state["completed_attempts"] = set()
-    
+
     completed_attempts = _resume_state["completed_attempts"]
     if not isinstance(completed_attempts, set):
         completed_attempts = set(completed_attempts)
         _resume_state["completed_attempts"] = completed_attempts
-    
+
     completed_attempts.add(str(attempt_uuid))
-    
+
     # Also track which probe this attempt belongs to
     if "probe_attempts" not in _resume_state:
         _resume_state["probe_attempts"] = {}
-    
+
     probe_short = probe_classname.replace("garak.probes.", "")
     if probe_short not in _resume_state["probe_attempts"]:
         _resume_state["probe_attempts"][probe_short] = set()
-    
+
     probe_attempts = _resume_state["probe_attempts"][probe_short]
     if not isinstance(probe_attempts, set):
         probe_attempts = set(probe_attempts)
         _resume_state["probe_attempts"][probe_short] = probe_attempts
-    
+
     probe_attempts.add(str(attempt_uuid))
-    
+
     # Save state after each attempt (this is more frequent but ensures granular resume)
     run_id = get_current_run_id()
     if run_id and _run_manager and _config.run.resumable:
         _run_manager.save_state(run_id, _resume_state)
-        logger.debug(f"Marked attempt {attempt_uuid} as complete for probe {probe_short}")
+        logger.debug(
+            f"Marked attempt {attempt_uuid} as complete for probe {probe_short}"
+        )
 
 
 def get_completed_attempts_for_probe(probe_classname: str) -> Set[str]:
     """Get set of completed attempt UUIDs for a specific probe.
-    
+
     Args:
         probe_classname: Name of the probe
-        
+
     Returns:
         Set of completed attempt UUIDs for this probe
     """
     if not enabled() or _resume_state is None:
         return set()
-    
+
     probe_short = probe_classname.replace("garak.probes.", "")
     probe_attempts = _resume_state.get("probe_attempts", {})
     return set(probe_attempts.get(probe_short, set()))
@@ -656,27 +683,27 @@ def get_completed_attempts_for_probe(probe_classname: str) -> Set[str]:
 
 def should_skip_attempt_by_seq(probe_classname: str, seq: int) -> bool:
     """Check if an attempt should be skipped based on probe name and sequence number.
-    
+
     Uses deterministic (probename, seq) identifier instead of random UUID.
     Only used when resume_granularity is 'attempt'.
-    
+
     Args:
         probe_classname: Name of the probe
         seq: Sequence number of the attempt
-        
+
     Returns:
         True if attempt is already completed, False otherwise.
     """
     if not enabled() or _resume_state is None:
         return False
-    
+
     # Only skip attempts if we're in attempt-level mode
     if get_granularity() != "attempt":
         return False
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
     attempt_id = f"{probe_short}:{seq}"
-    
+
     completed_attempts = _resume_state.get("completed_attempts", set())
     result = attempt_id in completed_attempts
     return result
@@ -684,77 +711,91 @@ def should_skip_attempt_by_seq(probe_classname: str, seq: int) -> bool:
 
 def mark_attempt_complete_by_seq(probe_classname: str, seq: int) -> None:
     """Mark an attempt as completed based on probe name and sequence number.
-    
+
     Uses deterministic (probename, seq) identifier instead of random UUID.
     Only used when resume_granularity is 'attempt'.
-    
+
     Args:
         probe_classname: Name of the probe
         seq: Sequence number of the attempt
     """
-    logger.debug(f"mark_attempt_complete_by_seq called: probe={probe_classname}, seq={seq}")
-    logger.debug(f"enabled()={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}")
-    
+    logger.debug(
+        f"mark_attempt_complete_by_seq called: probe={probe_classname}, seq={seq}"
+    )
+    logger.debug(
+        f"enabled()={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}"
+    )
+
     if not enabled() or _resume_state is None:
-        logger.debug(f"Early return: enabled={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}")
+        logger.debug(
+            f"Early return: enabled={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}"
+        )
         return
-    
+
     # Only track attempts if we're in attempt-level mode
     granularity = get_granularity()
     logger.debug(f"Current granularity: {granularity}")
     if granularity != "attempt":
-        logger.debug(f"Skipping attempt tracking: granularity is '{granularity}', not 'attempt'")
+        logger.debug(
+            f"Skipping attempt tracking: granularity is '{granularity}', not 'attempt'"
+        )
         return
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
     attempt_id = f"{probe_short}:{seq}"
-    
+
     # Initialize completed_attempts set if it doesn't exist
     if "completed_attempts" not in _resume_state:
         _resume_state["completed_attempts"] = set()
-    
+
     completed_attempts = _resume_state["completed_attempts"]
     if not isinstance(completed_attempts, set):
         completed_attempts = set(completed_attempts)
         _resume_state["completed_attempts"] = completed_attempts
-    
+
     completed_attempts.add(attempt_id)
-    
+
     # Also track in probe_attempts for convenience
     if "probe_attempts" not in _resume_state:
         _resume_state["probe_attempts"] = {}
-    
+
     if probe_short not in _resume_state["probe_attempts"]:
         _resume_state["probe_attempts"][probe_short] = set()
-    
+
     probe_attempts = _resume_state["probe_attempts"][probe_short]
     if not isinstance(probe_attempts, set):
         probe_attempts = set(probe_attempts)
         _resume_state["probe_attempts"][probe_short] = probe_attempts
-    
+
     probe_attempts.add(attempt_id)
-    
+
     logger.debug(f"Added attempt {attempt_id} to completed_attempts")
-    
+
     # Save state after each attempt
     run_id = get_current_run_id()
-    logger.debug(f"About to save state: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}")
+    logger.debug(
+        f"About to save state: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}"
+    )
     if run_id and _run_manager and _config.run.resumable:
         logger.info(f"Saving state for attempt {attempt_id}")
         _run_manager.save_state(run_id, _resume_state)
         logger.info(f"Marked attempt {attempt_id} as complete")
     else:
-        logger.warning(f"Skipping state save: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}")
+        logger.warning(
+            f"Skipping state save: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}"
+        )
 
 
-def initialize_new_run_with_attempts(probenames: List[str], generator=None, existing_run_uuid: str = None) -> str:
+def initialize_new_run_with_attempts(
+    probenames: List[str], generator=None, existing_run_uuid: str = None
+) -> str:
     """Initialize a new resumable run with attempt tracking support.
-    
+
     Args:
         probenames: List of probe names to be executed.
         generator: The generator instance (optional, for saving resume info)
         existing_run_uuid: Optional existing UUID from _config.transient.run_id to maintain consistency
-        
+
     Returns:
         Generated run ID.
     """
@@ -766,10 +807,13 @@ def initialize_new_run_with_attempts(probenames: List[str], generator=None, exis
     run_id = _run_manager.generate_run_id(existing_uuid=existing_run_uuid)
 
     # Preserve original start_time if available (for resumed runs)
-    original_start_time = (_config.transient.original_start_time 
-                           if hasattr(_config.transient, "original_start_time") and _config.transient.original_start_time
-                           else datetime.now().isoformat())
-    
+    original_start_time = (
+        _config.transient.original_start_time
+        if hasattr(_config.transient, "original_start_time")
+        and _config.transient.original_start_time
+        else datetime.now().isoformat()
+    )
+
     _resume_state = {
         "run_id": run_id,
         "probenames": probenames,
@@ -784,12 +828,14 @@ def initialize_new_run_with_attempts(probenames: List[str], generator=None, exis
         "start_time": original_start_time,  # Use original start_time from report if resuming
         "finished": False,
     }
-    
+
     # Save generator and model info for resume
     if generator is not None:
-        generator_class = f"{generator.__class__.__module__}.{generator.__class__.__name__}"
+        generator_class = (
+            f"{generator.__class__.__module__}.{generator.__class__.__name__}"
+        )
         _resume_state["generator"] = generator_class
-        
+
         # Extract model_type and model_name
         if hasattr(generator, "name"):
             _resume_state["model_name"] = generator.name
@@ -800,7 +846,7 @@ def initialize_new_run_with_attempts(probenames: List[str], generator=None, exis
             parts = generator_class.split(".")
             if len(parts) >= 3 and parts[0] == "garak" and parts[1] == "generators":
                 _resume_state["model_type"] = parts[2]
-    
+
     # Save the full generator configuration from _config
     if hasattr(_config.plugins, "generators") and _config.plugins.generators:
         _resume_state["generator_config"] = _config.plugins.generators
@@ -810,7 +856,7 @@ def initialize_new_run_with_attempts(probenames: List[str], generator=None, exis
         _resume_state["report_dir"] = _config.reporting.report_dir
     if hasattr(_config.reporting, "report_prefix"):
         _resume_state["report_prefix"] = _config.reporting.report_prefix
-    
+
     # Save probe_spec, target_type, target_name for digest metadata
     if hasattr(_config.plugins, "probe_spec"):
         _resume_state["probe_spec"] = _config.plugins.probe_spec
@@ -824,72 +870,97 @@ def initialize_new_run_with_attempts(probenames: List[str], generator=None, exis
 
     # Set resume_run_id for tracking THIS run's resumable state
     # Only set if not already set (i.e., this is a fresh run, not a resumed run)
-    if not hasattr(_config.transient, "resume_run_id") or _config.transient.resume_run_id is None:
+    if (
+        not hasattr(_config.transient, "resume_run_id")
+        or _config.transient.resume_run_id is None
+    ):
         _config.transient.resume_run_id = run_id
 
-    logger.info(f"Initialized new resumable run {run_id} with granularity={get_granularity()}")
+    logger.info(
+        f"Initialized new resumable run {run_id} with granularity={get_granularity()}"
+    )
     return run_id
 
 
-def save_probe_progress(probe_classname: str, prompt_index: int, total_prompts: int) -> None:
+def save_probe_progress(
+    probe_classname: str, prompt_index: int, total_prompts: int
+) -> None:
     """Save progress for a probe at the prompt level.
-    
+
     This tracks the last completed prompt index and total prompts for each probe,
     enabling precise resume from the next prompt.
-    
+
     Args:
         probe_classname: Name of the probe
         prompt_index: Index of last completed prompt (0-based)
         total_prompts: Total number of prompts for this probe
     """
     if not enabled() or _resume_state is None:
-        logger.debug(f"save_probe_progress skipped: enabled={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}")
+        logger.debug(
+            f"save_probe_progress skipped: enabled={enabled()}, _resume_state={'None' if _resume_state is None else 'exists'}"
+        )
         return
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
-    
+
     # Initialize probes dict if it doesn't exist
     if "probes" not in _resume_state:
         _resume_state["probes"] = {}
-    
+
     # Update probe progress
     _resume_state["probes"][probe_short] = {
         "prompt_index": prompt_index,
-        "total_prompts": total_prompts
+        "total_prompts": total_prompts,
     }
     _resume_state["current_probe"] = probe_short
     _resume_state["current_prompt_index"] = prompt_index
-    
-    logger.info(f"[RESUME DEBUG] Updated _resume_state for {probe_short}: prompt_index={prompt_index}, total_prompts={total_prompts}")
-    logger.info(f"[RESUME DEBUG] Current probes in state: {list(_resume_state.get('probes', {}).keys())}")
-    logger.debug(f"Updated probe progress: {probe_short} at {prompt_index}/{total_prompts}")
-    
+
+    logger.info(
+        f"[RESUME DEBUG] Updated _resume_state for {probe_short}: prompt_index={prompt_index}, total_prompts={total_prompts}"
+    )
+    logger.info(
+        f"[RESUME DEBUG] Current probes in state: {list(_resume_state.get('probes', {}).keys())}"
+    )
+    logger.debug(
+        f"Updated probe progress: {probe_short} at {prompt_index}/{total_prompts}"
+    )
+
     # Save state after updating prompt progress
     run_id = get_current_run_id()
-    logger.info(f"[RESUME DEBUG] About to save state: run_id={run_id}, resumable={_config.run.resumable}")
+    logger.info(
+        f"[RESUME DEBUG] About to save state: run_id={run_id}, resumable={_config.run.resumable}"
+    )
     if run_id and _run_manager and _config.run.resumable:
         _run_manager.save_state(run_id, _resume_state)
-        logger.info(f"[RESUME DEBUG] ✅ State saved to disk for {probe_short} at prompt {prompt_index}/{total_prompts}")
-        logger.debug(f"Saved progress: {probe_short} at prompt {prompt_index}/{total_prompts}")
+        logger.info(
+            f"[RESUME DEBUG] ✅ State saved to disk for {probe_short} at prompt {prompt_index}/{total_prompts}"
+        )
+        logger.debug(
+            f"Saved progress: {probe_short} at prompt {prompt_index}/{total_prompts}"
+        )
     else:
-        logger.error(f"[RESUME DEBUG] ❌ Failed to save state: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}")
-        logger.warning(f"Skipping progress save: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}")
+        logger.error(
+            f"[RESUME DEBUG] ❌ Failed to save state: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}"
+        )
+        logger.warning(
+            f"Skipping progress save: run_id={run_id}, _run_manager={'None' if _run_manager is None else 'exists'}, resumable={_config.run.resumable}"
+        )
 
 
 def get_resume_point(probe_classname: str) -> int:
     """Get the next prompt index to execute for a probe.
-    
+
     Calculates where to resume execution based on saved state.
-    
+
     Args:
         probe_classname: Name of the probe
-        
+
     Returns:
         Next prompt index to process (resume_point)
         - If probe not in state: return 0 (start from beginning)
         - If probe completed all prompts: return total_prompts (done)
         - Otherwise: return prompt_index + 1 (next prompt after last completed)
-    
+
     Example:
         - prompt_index=3, total_prompts=10 → resume_point=4
         - prompt_index=9, total_prompts=10 → resume_point=10 (done)
@@ -897,26 +968,28 @@ def get_resume_point(probe_classname: str) -> int:
     """
     if not enabled() or _resume_state is None:
         return 0
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
     probes = _resume_state.get("probes", {})
-    
+
     if probe_short in probes:
         probe_state = probes[probe_short]
         prompt_index = probe_state.get("prompt_index", -1)
         total_prompts = probe_state.get("total_prompts", 0)
-        
+
         # Resume from next prompt after last completed
         resume_point = prompt_index + 1
-        
-        logger.info(f"[RESUME DEBUG] get_resume_point for {probe_short}: prompt_index={prompt_index}, total_prompts={total_prompts}, resume_point={resume_point}")
+
+        logger.info(
+            f"[RESUME DEBUG] get_resume_point for {probe_short}: prompt_index={prompt_index}, total_prompts={total_prompts}, resume_point={resume_point}"
+        )
         logger.debug(
             f"Resume point for {probe_short}: {resume_point}/{total_prompts} "
             f"(last completed: {prompt_index})"
         )
-        
+
         return resume_point
-    
+
     # No state found, start from beginning
     logger.debug(f"No saved state for {probe_short}, starting from prompt 0")
     return 0
@@ -924,40 +997,40 @@ def get_resume_point(probe_classname: str) -> int:
 
 def get_probe_state(probe_classname: str) -> Optional[Dict]:
     """Get the saved state for a specific probe.
-    
+
     Args:
         probe_classname: Name of the probe
-        
+
     Returns:
         Dictionary with 'prompt_index' and 'total_prompts', or None if not found
     """
     if not enabled() or _resume_state is None:
         return None
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
     probes = _resume_state.get("probes", {})
-    
+
     return probes.get(probe_short, None)
 
 
 def get_total_prompts(probe_classname: str) -> int:
     """Get the total number of prompts for a probe from saved state.
-    
+
     Args:
         probe_classname: Name of the probe
-        
+
     Returns:
         Total number of prompts, or 0 if not found
     """
     if not enabled() or _resume_state is None:
         return 0
-    
+
     probe_short = probe_classname.replace("garak.probes.", "").replace("probes.", "")
     probes = _resume_state.get("probes", {})
-    
+
     if probe_short in probes:
         return probes[probe_short].get("total_prompts", 0)
-    
+
     return 0
 
 
