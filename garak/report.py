@@ -77,8 +77,8 @@ class Report:
 
         self.evaluations = pd.DataFrame.from_dict(evals)
         self.evaluations["score"] = np.where(
-            self.evaluations["total_evaluated"] != 0,
-            100 * self.evaluations["passed"] / self.evaluations["total_evaluated"],
+            self.evaluations["total"] != 0,
+            100 * self.evaluations["passed"] / self.evaluations["total"],
             0,
         )
         self.scores = self.evaluations[["probe", "score"]].groupby("probe").mean()
@@ -112,7 +112,23 @@ class Report:
 
         # now build all the reports
         all_reports = []
-        for probe in self.scores.index:
+
+        # Determine probe order: use original probe_spec order if available, else DataFrame index order
+        probe_order = list(self.scores.index)
+        if self.metadata is not None and "plugins.probe_spec" in self.metadata:
+            # Parse probe_spec to maintain original order
+            probe_spec = self.metadata.get("plugins.probe_spec", "")
+            if probe_spec:
+                # probe_spec format: "malwaregen.Eicar,malwaregen.GTUBE"
+                spec_probes = [p.strip() for p in probe_spec.split(",")]
+                # Filter to only probes that actually ran
+                probe_order = [p for p in spec_probes if p in self.scores.index]
+                # Add any probes that ran but weren't in spec (shouldn't happen, but be defensive)
+                for p in self.scores.index:
+                    if p not in probe_order:
+                        probe_order.append(p)
+
+        for probe in probe_order:
             report = (
                 report_template.model_copy()
             )  # replaced copy() with model_copy() to avoid deprecation warning
@@ -141,9 +157,7 @@ class Report:
                     detection_method=ac.Detection(
                         type=ae.MethodEnum.thres, name="Count failed"
                     ),
-                    results=probe_data[
-                        ["detector", "passed", "total_evaluated", "score"]
-                    ]
+                    results=probe_data[["detector", "passed", "total", "score"]]
                     .reset_index()
                     .to_dict(),
                 )
