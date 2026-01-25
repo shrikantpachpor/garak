@@ -2,6 +2,20 @@
 
 *Generative AI Red-teaming & Assessment Kit*
 
+## Summary of Changes (Resume Feature Contribution)
+
+This contribution adds robust resumability and run management to garak:
+
+- **Resume Service**: New module for saving and resuming interrupted scans
+- **CLI Enhancements**: New flags for resuming, listing, and deleting runs (`--resume`, `--list_runs`, `--delete_run`, `--resume_granularity`)
+- **Configurable Granularity**: Resume at probe-level (fast) or attempt-level (precise)
+- **Run Management**: List, resume, and delete scan state from the CLI
+- **UUID-Based Tracking**: Robust identification of completed work
+- **Comprehensive Documentation**: See `docs/source/resumeservice.rst` and `docs/source/resuming.rst`
+- **Extensive Testing**: 25+ new tests for resume logic and integration
+
+See the [Resuming Scans](#resuming-scans) section below for usage and examples.
+
 `garak` checks if an LLM can be made to fail in a way we don't want. `garak` probes for hallucination, data leakage, prompt injection, misinformation, toxicity generation, jailbreaks, and many other weaknesses. If you know `nmap` or `msf` / Metasploit Framework, garak does somewhat similar things to them, but for LLMs. 
 
 `garak` focuses on ways of making an LLM or dialog system fail. It combines static, dynamic, and adaptive probes to explore this.
@@ -97,6 +111,32 @@ The general syntax is:
 To specify a generator, use the `--target_type` and, optionally, the `--target_name` options. Model type specifies a model family/interface; model name specifies the exact model to be used. The "Intro to generators" section below describes some of the generators supported. A straightforward generator family is Hugging Face models; to load one of these, set `--target_type` to `huggingface` and `--target_name` to the model's name on Hub (e.g. `"RWKV/rwkv-4-169m-pile"`). Some generators might need an API key to be set as an environment variable, and they'll let you know if they need that.
 
 `garak` runs all the probes by default, but you can be specific about that too. `--probes promptinject` will use only the [PromptInject](https://github.com/agencyenterprise/promptinject) framework's methods, for example. You can also specify one specific plugin instead of a plugin family by adding the plugin name after a `.`; for example, `--probes lmrc.SlurUsage` will use an implementation of checking for models generating slurs based on the [Language Model Risk Cards](https://arxiv.org/abs/2303.18190) framework.
+
+## Resuming Scans
+
+For long-running vulnerability scans, `garak` supports resuming interrupted assessments:
+
+```bash
+# Make a scan resumable
+garak --target_type openai --target_name gpt-4 --resumable --probes all
+
+# If interrupted, resume with:
+garak --resume <run-id>
+
+# List all resumable runs
+garak --list_runs
+
+# Delete old run state
+garak --delete_run <run-id>
+```
+
+Resume features:
+* **Configurable granularity**: Resume at probe-level (fast) or attempt-level (precise)
+* **UUID-based tracking**: Robust identification of completed work
+* **Run management**: List, resume, and delete operations
+* **Report continuity**: Seamless integration with existing reports
+
+See the [resume documentation](docs/source/resuming.rst) for details.
 
 For help and inspiration, find us on [Twitter](https://twitter.com/garak_llm) or [discord](https://discord.gg/uVch4puUCs)!
 

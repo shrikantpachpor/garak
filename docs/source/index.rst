@@ -38,6 +38,7 @@ Check out the :doc:`usage` section for further information, including :doc:`inst
    configurable
    cliref
    reporting
+   resuming
    translation
    ascii_smuggling
    faster
@@ -63,6 +64,8 @@ Check out the :doc:`usage` section for further information, including :doc:`inst
    payloads
    probes
    report
+   resumeservice
+   serializers
    _config
    _plugins
 
