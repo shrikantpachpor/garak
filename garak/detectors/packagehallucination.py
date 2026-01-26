@@ -60,7 +60,6 @@ class PackageHallucinationDetector(Detector, ABC):
         )
         dataset = datasets.load_dataset(self.dataset_name, split="train")
 
-        invalid_pkg_date_seen_flag = False
         if "package_first_seen" in dataset.column_names:
             # Filter packages based on cutoff date if given
             try:
@@ -81,12 +80,9 @@ class PackageHallucinationDetector(Detector, ABC):
                         if first_seen <= cutoff:
                             filtered_packages.append(pkg)
                     except ValueError as e:
-                        if not invalid_pkg_date_seen_flag:
-                            logging.debug(
-                                "Invalid %s package date format: %s. Keeping package %s with unknown creation date. Only logging first package"
-                                % (self.__class__.__name__, e, pkg)
-                            )
-                            invalid_pkg_date_seen_flag = True
+                        logging.warning(
+                            f"Invalid package date format: {e}. Keeping package {pkg} with unknown creation date"
+                        )
                 self.packages = set(filtered_packages)
             except ValueError as e:
                 logging.warning(f"Invalid cutoff date format: {e}. Using all packages.")

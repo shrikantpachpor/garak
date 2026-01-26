@@ -1,3 +1,7 @@
+# Note on Related PRs
+
+There is an existing pull request ([#1531](https://github.com/NVIDIA/garak/pull/1531)) for a similar resume feature. This PR is submitted separately because this implementation offers additional robustness, documentation, and test coverage, and addresses some of the review feedback on the earlier PR. The author is happy to collaborate or merge efforts as maintainers see fit.
+
 # garak, LLM vulnerability scanner
 
 *Generative AI Red-teaming & Assessment Kit*

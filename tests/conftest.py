@@ -8,10 +8,63 @@ if os.getenv("GARAK_LOG_FILE", None) is None:
 
 from garak import _config, _plugins
 import shutil
+from pathlib import Path
 
 # force a local cache file to exist when this top level import is loaded
 if not os.path.isfile(_plugins.PluginCache._user_plugin_cache_filename):
     _plugins.PluginCache.instance()
+
+
+@pytest.fixture(scope="session", autouse=True)
+def cleanup_test_resume_state(request):
+    """Clean up resume state and test report files at start and end of test session."""
+    import json
+
+    def cleanup():
+        # Clean up resume state directory
+        runs_dir = Path.home() / ".garak" / "runs"
+        if runs_dir.exists():
+            for run_dir in runs_dir.iterdir():
+                if run_dir.is_dir():
+                    state_file = run_dir / "state.json"
+                    if state_file.exists():
+                        try:
+                            with open(state_file, "r") as f:
+                                state = json.load(f)
+                            # Remove test-related runs
+                            # probe_spec can be a string or list
+                            probe_spec = state.get("probe_spec", [])
+                            if isinstance(probe_spec, str):
+                                probe_spec = [probe_spec]
+                            if any("test." in str(p) for p in probe_spec):
+                                shutil.rmtree(run_dir)
+                        except:
+                            pass
+
+        # Clean up test-related report files
+        _config.load_config()
+        report_path = _config.transient.data_dir / _config.reporting.report_dir
+        if report_path.exists():
+            for pattern in [
+                "_garak_internal_test*.report.jsonl",
+                "_garak_internal_test*.report.html",
+                "*test*.report.jsonl",
+                "*Test*.report.jsonl",
+            ]:
+                for file in report_path.glob(pattern):
+                    try:
+                        if file.is_file():
+                            file.unlink()
+                    except:
+                        pass
+
+    # Clean up at the start
+    cleanup()
+
+    # Register cleanup at the end too
+    request.addfinalizer(cleanup)
+
+    yield
 
 
 COMPLYING_OUTPUTS = [

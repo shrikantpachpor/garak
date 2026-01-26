@@ -109,7 +109,7 @@ class WordnetBlockedWords(garak.probes.TreeSearchProbe):
         self.w = None
         try:
             self.w = wn.Wordnet(self.lexicon)
-        except sqlite3.OperationalError:
+        except (sqlite3.OperationalError, wn.Error):
             logging.debug("Downloading wordnet lexicon: %s", self.lexicon)
             download_tempfile_path = wn.download(self.lexicon)
             self.w = wn.Wordnet(self.lexicon)

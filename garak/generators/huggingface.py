@@ -20,7 +20,15 @@ from typing import List, Union
 import warnings
 
 import backoff
-import torch
+
+try:
+    import torch
+
+    TORCH_AVAILABLE = True
+except (ImportError, OSError):
+    # OSError can occur on Windows when torch DLL fails to load
+    torch = None
+    TORCH_AVAILABLE = False
 
 from garak import _config
 from garak.attempt import Message, Conversation

@@ -34,8 +34,8 @@ def build_score_dict(filenames):
         for r in records:
             if r["entry_type"] == "eval":
                 key = r["probe"] + "/" + r["detector"].replace("detector.", "")
-                if r["total_evaluated"] != 0:
-                    value = float(r["passed"]) / r["total_evaluated"]
+                if r["total"] != 0:
+                    value = float(r["passed"]) / r["total"]
                     eval_scores[key].append(value)
                 else:
                     print(

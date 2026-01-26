@@ -36,3 +36,7 @@ class ConfigFailure(GarakException):
 
 class PayloadFailure(GarakException):
     """Problem instantiating/using payloads"""
+
+
+class ResumeValidationError(GarakException):
+    """Raised when resume validation fails (version mismatch, corrupted state, etc.)"""

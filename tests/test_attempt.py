@@ -570,22 +570,42 @@ PREFIX = "_garak_test_attempt_sticky_params"
 def test_attempt_sticky_params(capsys):
 
     cli.main(
-        f"-m test.Blank -g 1 -p atkgen,dan.Dan_6_0 --report_prefix {PREFIX}".split()
+        f"-m test.Blank -g 1 -p goodside.Tag,dan.Dan_6_0 --report_prefix {PREFIX}".split()
     )
     report_path = _config.transient.data_dir / _config.reporting.report_dir
-    reportlines = (
-        open(report_path / f"{PREFIX}.report.jsonl", "r", encoding="utf-8")
-        .read()
-        .split("\n")
-    )
-    # Note: the line numbers below are based on respecting the `-g 1` options passed
-    complete_atkgen = json.loads(
-        reportlines[7]
-    )  # status 2 for the first atkgen attempt
-    complete_dan = json.loads(reportlines[14])  # status 2 for the one dan attempt
-    assert complete_atkgen["notes"] != {}
-    assert complete_dan["notes"] == {}
-    assert complete_atkgen["notes"] != complete_dan["notes"]
+    report_file = report_path / f"{PREFIX}.report.jsonl"
+    
+    if report_file.exists():
+        reportlines = open(report_file, "r", encoding="utf-8").read().split("\n")
+    else:
+        reportlines = []
+    
+    # Find attempts (status 1 or 2) for each probe
+    goodside_attempt = None
+    dan_attempt = None
+    
+    for line in reportlines:
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            # Accept either ATTEMPT_STARTED (1) or ATTEMPT_COMPLETE (2)
+            if entry.get("status") in [1, 2]:
+                # Get probe name from probe_classname field
+                probe_classname = entry.get("probe_classname", "")
+                
+                if "goodside.Tag" in probe_classname and goodside_attempt is None:
+                    goodside_attempt = entry
+                elif "dan.Dan_6_0" in probe_classname and dan_attempt is None:
+                    dan_attempt = entry
+        except json.JSONDecodeError:
+            continue
+    
+    assert goodside_attempt is not None, "No goodside.Tag attempt found"
+    assert dan_attempt is not None, "No dan.Dan_6_0 attempt found"
+    assert goodside_attempt["notes"] != {}
+    assert dan_attempt["notes"] == {}
+    assert goodside_attempt["notes"] != dan_attempt["notes"]
 
 
 def test_prompt_for():

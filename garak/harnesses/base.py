@@ -31,7 +31,7 @@ def _initialize_runtime_services():
 
     # TODO: this block may be gated in the future to ensure it is only run once. At this time
     # only one harness will execute per run so the output here is reasonable.
-    service_names = ["garak.langservice"]
+    service_names = ["garak.langservice", "garak.resumeservice"]
     for service_name in service_names:
         logging.info("service import: " + service_name)
         service = importlib.import_module(service_name)
@@ -167,7 +167,9 @@ class Harness(Configurable):
 
             for attempt in attempt_results:
                 attempt.status = garak.attempt.ATTEMPT_COMPLETE
-                _config.transient.reportfile.write(json.dumps(attempt.as_dict(), ensure_ascii=False) + "\n")
+                _config.transient.reportfile.write(
+                    json.dumps(attempt.as_dict(), ensure_ascii=False) + "\n"
+                )
 
             if len(attempt_results) == 0:
                 logging.warning(

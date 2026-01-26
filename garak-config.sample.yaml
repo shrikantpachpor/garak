@@ -1,0 +1,76 @@
+# garak Configuration Sample File
+# This is a template configuration file for garak with placeholder values
+# Copy this file to garak-config.yaml and replace placeholders with your actual values
+
+system:
+  verbose: 1  # Verbosity level: 0 (minimal) to 2 (debug)
+  parallel_attempts: 1  # Number of parallel attempts to run
+
+run:
+  generations: 1  # Number of generations per prompt
+  deprefix: true  # Remove common prefixes from responses
+  resumable: false  # Make this run resumable (set to true to enable resume feature)
+  resume_granularity: attempt  # Resume granularity: 'probe' or 'attempt'
+
+plugins:
+  # Specify probes to run (comma-separated)
+  # Examples: 
+  #   - dan.Dan_11_0  (single probe)
+  #   - dan,encoding  (probe families)
+  #   - all           (all probes)
+  probe_spec: PROBE_NAME_OR_FAMILY
+  
+  # Target type: 'huggingface', 'openai', 'rest', 'litellm', etc.
+  target_type: TARGET_TYPE
+  
+  generators:
+    # Example: OpenAI configuration
+    openai:
+      OpenAIGenerator:
+        api_key: YOUR_OPENAI_API_KEY  # Replace with your API key
+        name: gpt-4  # Model name
+        temperature: 0.7
+        max_tokens: 150
+    
+    # Example: HuggingFace configuration
+    huggingface:
+      HuggingFaceGenerator:
+        name: meta-llama/Llama-2-7b-chat-hf  # Model name
+        api_key: YOUR_HUGGINGFACE_TOKEN  # Replace with your token
+        use_auth_token: true
+    
+    # Example: REST API configuration
+    rest:
+      RestGenerator:
+        uri: https://your-api-endpoint.com/chat/  # Replace with your API endpoint
+        headers:
+          Authorization: "Bearer YOUR_API_TOKEN"  # Replace with your token
+          Content-Type: "application/json"
+        req_template_json_object:
+          message: "$INPUT"  # $INPUT is replaced with the probe prompt
+          session_id: "garak-session-id"
+        response_json: true
+        response_json_field: "response"  # JSON field containing the response
+        verify_ssl: true  # Set to false for self-signed certificates
+        request_timeout: 60  # Request timeout in seconds
+    
+    # Example: LiteLLM configuration (unified interface)
+    litellm:
+      LiteLLMGenerator:
+        name: gpt-3.5-turbo  # Any LiteLLM-supported model
+        api_key: YOUR_API_KEY  # Provider-specific API key
+        api_base: https://api.provider.com/v1  # Optional: custom API base
+
+reporting:
+  report_dir: ./garak_reports  # Directory to save reports
+  report_prefix: garak_run  # Prefix for report filenames
+  taxonomy: default  # Taxonomy to use for reporting
+  show_100_pass_modules: true  # Show modules with 100% pass rate
+  group_aggregation_function: mean  # Aggregation function: mean, median, min, max
+
+# Resume-specific settings (automatically handled)
+# These are set automatically when using --resumable or --resume flags
+# resume:
+#   run_id: garak-run-abc123-20260123-103000  # Auto-generated run ID
+#   granularity: attempt  # 'probe' or 'attempt'
+#   state_dir: ~/.garak/runs/  # State storage directory

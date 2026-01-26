@@ -1,3 +1,5 @@
+# Prevent PR submission script from being uploaded
+submit_pr.ps1
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -166,10 +168,85 @@ cython_debug/
 garak.*.jsonl
 garak.log
 hitlog.*.jsonl
+garak-config.yaml
 .vscode
 .history/
 garak_runs/
 runs/
 logs/
 .DS_Store
+
+# Resume feature state directories (local development)
+temp/
+temp_garak/
+temp_preserve/
+backup_custom/
+
+# Test outputs and validation artifacts
+*.jsonl
+resume_output.txt
+resume_test_output.txt
+test_scan_report.jsonl
+
+# Development and validation scripts (not part of core project)
+test_*.py
+validate_*.py
+verify_*.py
+check_*.py
+analyze_*.py
+compare_*.py
+automated_*.py
+comprehensive_*.py
+detailed_*.py
+final_*.py
+generate_*.py
+migration_*.py
+quick_*.py
+run_manual_*.py
+run_test_*.py
+structure_*.py
+temp_*.py
+
+# Development documentation (not for PR)
+*_ANALYSIS.md
+*_CHECKLIST.md
+*_COMPARISON*.md
+*_CONTINUITY*.md
+*_GUIDE.md
+*_IMPLEMENTATION*.md
+*_LEVEL_*.md
+*_REPORT*.md
+*_STATUS*.md
+*_STRATEGY.md
+*_SUMMARY*.md
+*_TESTING*.md
+*_VALIDATION*.md
+*_VERDICT.md
+START_HERE*.md
+00_START_HERE.md
+ATTEMPT_*.md
+CRITICAL_*.md
+DETAILED_*.md
+EXACT_*.md
+FINAL_*.md
+IMPLEMENTATION_*.md
+MANUAL_*.md
+MERGE_*.md
+MIGRATION_*.md
+OUTPUT_*.md
+PR_*.md
+PROJECTS_*.md
+QUICK_*.md
+README_RESUME*.md
+RESUME_*.md
+RUN_ID*.md
+TEST_*.md
+TESTING_*.md
+VISUAL_*.md
+
+# JSON analysis files
+*_ANALYSIS.json
+CUSTOMIZATION_*.json
+migration_*.json
+MIGRATION_*.json
 
